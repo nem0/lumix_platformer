@@ -1,0 +1,5 @@
+shader "pipelines/standard.shd"
+texture ""
+texture ""
+texture ""
+color {0.384371,0.170542,0.070740,1}

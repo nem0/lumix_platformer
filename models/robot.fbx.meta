@@ -1,0 +1,8 @@
+create_impostor = false
+use_mikktspace = false
+position_error = 0.0000000000
+rotation_error = 0.0000000000
+physics = "none"
+scale = 1.0000000000
+culling_scale = 1.0000000000
+split = false

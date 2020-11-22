@@ -1,0 +1,504 @@
+local lighting_shader = preloadShader("pipelines/lighting.shd")
+local textured_quad_shader = preloadShader("pipelines/textured_quad.shd")
+local debug_clusters_shader = preloadShader("pipelines/debug_clusters.shd")
+local tonemap_shader = preloadShader("pipelines/tonemap.shd")
+local selection_outline_shader = preloadShader("pipelines/selection_outline.shd")
+local indirect_specular_shader = preloadShader("pipelines/indirect_specular.shd")
+local blur_shader = preloadShader("pipelines/blur.shd")
+local debug_shadowmap = false
+local debug_normal = false
+local debug_roughness = false
+local debug_metallic = false
+local debug_albedo = false
+local debug_clusters = false
+local debug_shadow_atlas = false
+local screenshot_request = 0
+local enable_icons = true
+
+local decal_state = {
+	blending = "add",
+	depth_write = false
+}
+
+local transparent_state = {
+	blending = "alpha",
+	depth_write = false
+}
+
+local water_state = {
+	depth_write = false
+}
+
+local default_state = {
+	define = "DEFERRED",
+	depth_write = true,
+	stencil_func = STENCIL_ALWAYS,
+	stencil_write_mask = 0xff,
+	stencil_ref = 1,
+	stencil_mask = 0xff, 
+	stencil_sfail = STENCIL_REPLACE,
+	stencil_zfail = STENCIL_REPLACE,
+	stencil_zpass = STENCIL_REPLACE,
+	wireframe = false
+}
+
+local impostor_state = {
+	depth_write = true,
+	stencil_func = STENCIL_ALWAYS,
+	stencil_write_mask = 0xff,
+	stencil_ref = 1,
+	stencil_mask = 0xff, 
+	stencil_sfail = STENCIL_REPLACE,
+	stencil_zfail = STENCIL_REPLACE,
+	stencil_zpass = STENCIL_REPLACE,
+	wireframe = false
+}
+
+local grass_state = {
+	define = "GRASS",
+	depth_write = true,
+	stencil_func = STENCIL_ALWAYS,
+	stencil_write_mask = 0xff,
+	stencil_ref = 1,
+	stencil_mask = 0xff, 
+	stencil_sfail = STENCIL_REPLACE,
+	stencil_zfail = STENCIL_REPLACE,
+	stencil_zpass = STENCIL_REPLACE,
+	wireframe = false
+}
+
+function waterPass(entities, colorbuffer, dsbuffer)
+	setRenderTargetsReadonlyDS(colorbuffer, dsbuffer)
+
+	beginBlock("water_pass")
+	pass(getCameraParams())
+	bindRenderbuffers({ dsbuffer, }, 4);
+	local bucket = createBucket(entities, "water", "", "depth")
+	renderBucket(bucket, water_state)
+	endBlock()
+end
+
+function transparentPass(entities, colorbuffer, dsbuffer, shadowmap)
+	setRenderTargetsReadonlyDS(colorbuffer, dsbuffer)
+
+	beginBlock("transparent_pass")
+	pass(getCameraParams())
+	local bucket = createBucket(entities, "transparent", "", "depth")
+	fur(bucket)
+	bindRenderbuffers({ shadowmap }, 4);
+	renderBucket(bucket, transparent_state)
+	local view_params = getCameraParams()
+	renderParticles(view_params)
+	endBlock()
+end
+
+function impostorPass(entities, colorbuffer, dsbuffer)
+	setRenderTargetsReadonlyDS(colorbuffer, dsbuffer)
+
+	beginBlock("impostor_pass")
+	pass(getCameraParams())
+	local bucket = createBucket(entities, "impostor", "")
+	renderBucket(bucket, impostor_state)
+	endBlock()
+end
+
+function geomPass(entities)
+	beginBlock("geom_pass")
+		local gbuffer0 = createRenderbuffer(viewport_w, viewport_h, "rgba8", "gbuffer0")
+		local gbuffer1 = createRenderbuffer(viewport_w, viewport_h, "rgba16", "gbuffer1")
+		local gbuffer2 = createRenderbuffer(viewport_w, viewport_h, "rgba8", "gbuffer2")
+		local dsbuffer = createRenderbuffer(viewport_w, viewport_h, "depth24stencil8", "gbuffer_ds")
+	
+		setRenderTargetsDS(gbuffer0, gbuffer1, gbuffer2, dsbuffer)
+		if PREVIEW ~= nil then
+			clear(CLEAR_ALL, 0.9, 0.9, 0.9, 1, 0)
+		else
+			clear(CLEAR_ALL, 0.0, 0.0, 0.0, 1, 0)
+		end
+		local view_params = getCameraParams()
+		pass(view_params)
+		renderTerrains(view_params, default_state)
+		renderGrass(view_params, grass_state)
+		local bucket = createBucket(entities, "default", "DEFERRED")
+		
+		renderBucket(bucket, default_state)
+	endBlock()
+
+	beginBlock("decals")
+		setRenderTargetsReadonlyDS(gbuffer0, gbuffer1, gbuffer2, dsbuffer)
+		bindRenderbuffers({
+			dsbuffer,
+		}, 1)
+		local bucket = createBucket(entities, "decal", "")
+		renderBucket(bucket, decal_state)
+	endBlock()
+	
+	return gbuffer0, gbuffer1, gbuffer2, dsbuffer
+end
+
+function lightPass(gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
+	local hdr_rb = 0
+	if PROBE ~= nil then
+		hdr_rb = createRenderbuffer(viewport_w, viewport_h, "rgba32f", "hdr")
+	else
+		hdr_rb = createRenderbuffer(viewport_w, viewport_h, "rgba16f", "hdr")
+	end
+	setRenderTargets(hdr_rb)
+	clear(CLEAR_COLOR, 0, 0, 0, 0, 0)
+	
+	local view_params = getCameraParams()
+	
+	setRenderTargetsReadonlyDS(hdr_rb, gbuffer_depth)
+	if PROBE_BOUNCE == nil or PROBE_BOUNCE then
+		beginBlock("indirect_specular")
+			bindRenderbuffers({
+				gbuffer0,
+				gbuffer1,
+				gbuffer2,
+				gbuffer_depth
+			}, 0)
+			renderReflectionVolumes(view_params, indirect_specular_shader, 4)
+		endBlock()
+	end
+
+	beginBlock("lighting")
+	drawArray(0, 3, lighting_shader,
+		{
+			gbuffer0,
+			gbuffer1,
+			gbuffer2,
+			gbuffer_depth,
+			shadowmap,
+			SHADOW_ATLAS
+		}, 
+		{ 
+			depth_test = false,
+			blending = "add",
+			stencil_write_mask = 0,
+			stencil_func = STENCIL_EQUAL,
+			stencil_ref = 1,
+			stencil_mask = 0xff,
+			stencil_sfail = STENCIL_KEEP,
+			stencil_zfail = STENCIL_KEEP,
+			stencil_zpass = STENCIL_KEEP,
+		}
+	)
+	endBlock()
+	
+	return hdr_rb
+end
+
+function debugClusters(gb_depth, output)
+	setRenderTargets(output)
+	drawArray(0, 3, debug_clusters_shader
+		, { gb_depth }
+		, { depth_test = false });
+end
+
+
+function debugRenderbuffer(rb, output, r_mask, g_mask, b_mask, a_mask, offsets)
+	setRenderTargets(output)
+
+	drawcallUniforms( 
+		0, 0, 1, 1, 
+		r_mask[1], r_mask[2], r_mask[3], r_mask[4], 
+		g_mask[1], g_mask[2], g_mask[3], g_mask[4], 
+		b_mask[1], b_mask[2], b_mask[3], b_mask[4], 
+		a_mask[1], a_mask[2], a_mask[3], a_mask[4], 
+		offsets[1], offsets[2], offsets[3], offsets[4]
+	)
+	drawArray(0, 3, textured_quad_shader
+		, { rb }
+		, { depth_test = false }
+	)
+end
+
+function blur(buffer, format, w, h, tmp_rb_dbg_name) 
+	beginBlock("blur")
+	local blur_buf = createRenderbuffer(w, h, format, tmp_rb_dbg_name)
+	setRenderTargets(blur_buf)
+	viewport(0, 0, w, h)
+	drawcallUniforms(1.0 / w, 1.0 / h, 0, 0)
+	drawArray(0, 3, blur_shader
+		, { buffer }
+		, { depth_test = false, depth_write = false }
+		, "BLUR_H"
+	)
+	setRenderTargets(buffer)
+	viewport(0, 0, w, h)
+	drawArray(0, 3, blur_shader
+		, { blur_buf }
+		, { depth_test = false, depth_write = false }
+	)
+	endBlock()
+end
+
+function shadowPass()
+	if not environmentCastShadows() then
+		local rb = createRenderbuffer(1, 1, "depth32", "shadowmap")
+		setRenderTargetsDS(rb)
+		clear(CLEAR_ALL, 0, 0, 0, 1, 0)
+		return rb
+	else 
+		beginBlock("shadows")
+			local depthbuf = createRenderbuffer(4096, 1024, "depth32", "shadowmap_depth")
+			setRenderTargetsDS(depthbuf)
+			clear(CLEAR_ALL, 0, 0, 0, 1, 0)
+			
+			for slice = 0, 3 do 
+				local view_params = getShadowCameraParams(slice, 4096)
+				
+				viewport(slice * 1024, 0, 1024, 1024)
+				beginBlock("slice " .. tostring(slice + 1))
+				pass(view_params)
+
+				local entities = cull(view_params)
+				local bucket0 = createBucket(entities, "default", "DEPTH")
+				local bucket1 = createBucket(entities, "impostor", "DEPTH")
+				renderBucket(bucket0, {})
+				renderBucket(bucket1, {})
+
+				renderTerrains(view_params, {define = "DEPTH"})
+				endBlock()
+			end
+		endBlock()
+		
+		return depthbuf
+	end
+end
+
+function postprocess(phase, hdr_buffer, gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
+	local prev = hdr_buffer
+	if _G["postprocesses"] ~= nil then
+		for _, value in pairs(_G["postprocesses"]) do
+			prev = value(getfenv(1), phase, prev, gbuffer0, gbuffer1, gbuffer_depth, shadowmap)
+		end
+	end
+	return prev
+end
+
+function tonemap(hdr_buffer)
+	if PROBE ~= nil then
+		return hdr_buffer
+	end
+
+	beginBlock("tonemap")
+	local rb
+	if APP ~= nil or PREVIEW ~= nil or screenshot_request == 1 then
+		rb = createRenderbuffer(viewport_w, viewport_h, "rgba8", "tonemap")
+	else
+		rb = createRenderbuffer(viewport_w, viewport_h, "rgba16f", "tonemap")
+	end
+	setRenderTargets(rb)
+	drawArray(0, 3, tonemap_shader
+		, { hdr_buffer }
+		, { depth_test = false }
+	)
+	endBlock()
+	return rb
+end
+
+function debugPass(output, gb0, gb1, gb2, gb_depth, shadowmap)
+	if debug_shadowmap then
+		debugRenderbuffer(shadowmap, output, {1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 1})
+	end
+	if debug_normal then
+		debugRenderbuffer(gb1, output, {1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 1})
+	end
+	if debug_albedo then
+		debugRenderbuffer(gb0, output, {1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 1})
+	end
+	if debug_roughness then
+		debugRenderbuffer(gb0, output, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 0}, {0, 0, 0, 1})
+	end
+	if debug_metallic then
+		debugRenderbuffer(gb1, output, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 0}, {0, 0, 0, 1})
+	end
+	if debug_shadow_atlas then
+		debugRenderbuffer(SHADOW_ATLAS, output, {1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 1})
+	end
+	if debug_clusters then
+		debugClusters(gb_depth, output)
+	end
+end
+
+
+function renderSelectionOutline(output)
+	local selection_mask = createRenderbuffer(viewport_w, viewport_h, "rgba8", "selection outline")
+	setRenderTargets(selection_mask)
+	clear(CLEAR_COLOR, 0, 0, 0, 0, 0)
+	renderSelection()
+	
+	setRenderTargets(output)
+	drawArray(0, 3, selection_outline_shader
+		, { selection_mask }
+		, { depth_test = false }
+	)
+end
+
+function main_shadowmap()
+	beginBlock("bake_shadow")
+
+	local depthbuf = createRenderbuffer(viewport_w, viewport_h, "depth32", "shadowmap_depth")
+	setRenderTargetsDS(depthbuf)
+	clear(CLEAR_ALL, 0, 0, 0, 1, 0)
+	local view_params = getCameraParams()
+	
+	pass(view_params)
+
+	local entities = cull(view_params)
+	local bucket = createBucket(entities, "default", "DEPTH")
+	renderBucket(bucket, {})
+	renderTerrains(view_params, {define = "DEPTH"})
+	setOutput(depthbuf)
+
+	endBlock()
+end
+
+function render_preview()
+	local view_params = getCameraParams()
+	local entities = cull(view_params)
+	
+	local rb = createRenderbuffer(viewport_w, viewport_h, "rgba16f", "preview_rb")
+	local dsbuffer = createRenderbuffer(viewport_w, viewport_h, "depth32", "gbuffer_ds")
+	
+	setRenderTargetsDS(rb, dsbuffer)
+	clear(CLEAR_ALL, 0.9, 0.9, 0.9, 1, 0)
+
+	pass(view_params)
+	local bucket1 = createBucket(entities, "default", "")
+	local bucket2 = createBucket(entities, "transparent", "", "depth")
+	renderBucket(bucket1, default_state)
+	renderBucket(bucket2, transparent_state)
+
+	local output = tonemap(rb)
+	setOutput(output)
+end
+
+function main()
+	if PREVIEW then
+		render_preview()
+		return
+	end
+
+
+	local view_params = getCameraParams()
+	local entities = cull(view_params)
+
+	local shadowmap = shadowPass()
+	local gbuffer0, gbuffer1, gbuffer2, gbuffer_depth = geomPass(entities)
+
+	if PROBE_BOUNCE == nil or PROBE_BOUNCE then
+		fillClusters(view_params)
+	else
+		fillClusters()
+	end
+
+	local hdr_buffer = lightPass(gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
+	impostorPass(entities, hdr_buffer, gbuffer_depth)
+	
+	custom_tonemap = false
+	local res = hdr_buffer
+	if PREVIEW == nil then
+		res = postprocess("pre", hdr_buffer, gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
+	end
+	
+	waterPass(entities, res, gbuffer_depth)
+	transparentPass(entities, res, gbuffer_depth, shadowmap)
+	setRenderTargetsReadonlyDS(hdr_buffer, gbuffer_depth)
+	renderTextMeshes()
+
+	if PREVIEW == nil then
+		res = postprocess("post", res, gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
+	end
+	
+	if PROBE == nil then
+		if custom_tonemap == true then
+			res = postprocess("tonemap", res, gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
+		else
+			res = tonemap(res)
+		end
+	end
+
+	if PREVIEW == nil and PROBE == nil then
+		res = postprocess("post_tonemap", res, gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
+	end
+
+	if GAME_VIEW or APP then
+		renderUI()
+		if renderIngameGUI ~= nil then
+			renderIngameGUI()
+		end
+	end
+
+	debugPass(res, gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
+	local icon_ds = -1
+	if SCENE_VIEW ~= nil then
+		icon_ds = createRenderbuffer(viewport_w, viewport_h, "depth24stencil8", "icon_ds")
+		pass(getCameraParams())
+			setRenderTargetsDS(res, icon_ds)
+			clear(CLEAR_DEPTH, 0, 0, 0, 1, 0)
+			renderGizmos()
+	end
+
+	render2D()
+
+	if SCENE_VIEW ~= nil then
+		renderDebugShapes()
+		renderSelectionOutline(res)
+		if enable_icons then 
+			setRenderTargetsDS(res, icon_ds)
+			bindRenderbuffers({
+				gbuffer_depth,
+			}, 1)
+			renderIcons()
+		end
+	end
+
+	if APP ~= nil then
+		setRenderTargets()
+		drawcallUniforms(0, 0, 1, 1, 1, 1, 1, 1)
+		drawArray(0, 3, textured_quad_shader
+			, { res }
+			, { depth_test = false })
+	end
+	setOutput(res)
+
+	if screenshot_request > 1 then
+		-- we have to wait for a few frames to propagate changed resolution
+		-- only then we can take a screeshot
+		screenshot_request = screenshot_request - 1
+		GameView.forceViewport(true, 4096, 2160)
+	elseif screenshot_request == 1 then
+		saveRenderbuffer(res, "screenshot.tga")
+		GameView.forceViewport(false, 0, 0)
+		screenshot_request = 0
+	end		
+end
+
+function onGUI()
+	if GAME_VIEW then
+		ImGui.SameLine()
+		if ImGui.Button("Screenshot") then
+			screenshot_request = 2
+		end
+		return
+	end
+
+	if ImGui.Button("Debug") then
+		ImGui.OpenPopup("debug_popup")
+	end
+
+	if ImGui.BeginPopup("debug_popup") then
+		changed, debug_shadowmap = ImGui.Checkbox("Shadowmap", debug_shadowmap)
+		changed, debug_shadow_atlas = ImGui.Checkbox("Shadow atlas", debug_shadow_atlas)
+		changed, debug_albedo = ImGui.Checkbox("Albedo", debug_albedo)
+		changed, debug_normal = ImGui.Checkbox("Normal", debug_normal)
+		changed, debug_roughness = ImGui.Checkbox("Roughness", debug_roughness)
+		changed, debug_metallic = ImGui.Checkbox("Metallic", debug_metallic)
+		changed, debug_clusters = ImGui.Checkbox("Clusters", debug_clusters)
+		changed, enable_icons = ImGui.Checkbox("Icons", enable_icons)
+		changed, default_state.wireframe = ImGui.Checkbox("wireframe", default_state.wireframe)
+		ImGui.EndPopup()
+	end
+end

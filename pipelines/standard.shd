@@ -154,7 +154,7 @@ fragment_shader [[
 			vec4 c = texture(u_albedomap, v_uv, -2) * u_material_color;
 			//data.albedo *= v_darken;
 		#else
-			vec4 c = texture(u_albedomap, v_uv) * vec4(pow(u_material_color.rgb, vec3(2.2)), 1);
+			vec4 c = texture(u_albedomap, v_uv) * u_material_color;
 		#endif
 		data.albedo = c.rgb;
 		data.alpha = c.a;

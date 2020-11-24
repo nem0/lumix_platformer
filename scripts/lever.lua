@@ -17,7 +17,9 @@ function interact()
     active = not active
     if active then
         subject.lua_script[0].speed = 0.7
+        this.rotation = {0, 0, 0.25, 0.866}
     else
         subject.lua_script[0].speed = 0
+        this.rotation = {0, 0, 0, 1}
     end
 end

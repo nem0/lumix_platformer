@@ -13,6 +13,7 @@ local interact_obj = nil
 fall_trigger = {}
 start_pos = {}
 respawn_msg = {}
+local checkpoint = {}
 
 Editor.setPropertyType(this, "start_pos", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "fall_trigger", Editor.ENTITY_PROPERTY)
@@ -35,7 +36,7 @@ function onInputEvent(event)
                 end
 			end
 			if dead and event.key_id == string.byte("R") and event.down then
-                this.parent.position = start_pos.position
+                this.parent.position = checkpoint.position
                 respawn_msg.gui_rect.enabled = false
                 dead = false
                 invincible = 0.5
@@ -64,21 +65,33 @@ function onInputEvent(event)
 end
 
 function start()
+    checkpoint = start_pos;
+
     this.parent.lua_script[0].onTrigger = function(e, touch_lost)
-        if e.lua_script and e.lua_script[0].lever then
-            if touch_lost then
-                if interact_obj then
-                    interact_obj.lua_script[0].exited()
+        if e.lua_script then
+            if e.lua_script[0].checkpoint then
+                checkpoint = e
+            end
+            if e.lua_script[0].lever then
+                if touch_lost then
+                    if interact_obj then
+                        interact_obj.lua_script[0].exited()
+                    end
+                    interact_obj = nil
+                else
+                    interact_obj = e
+                    e.lua_script[0].entered()
                 end
-                interact_obj = nil
-            else
-                interact_obj = e
-                e.lua_script[0].entered()
             end
         end
         
         if invincible > 0 then return end
         if e._entity == fall_trigger._entity then
+            dead = true
+            respawn_msg.gui_rect.enabled = true
+        elseif e.lua_script[0].trap and e.lua_script[0].active then
+            
+            e.lua_script[0].triggerTrap()
             dead = true
             respawn_msg.gui_rect.enabled = true
         elseif e.lua_script[0].spikes == true then

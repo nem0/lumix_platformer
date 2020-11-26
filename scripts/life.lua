@@ -1,3 +1,5 @@
+life = true
+picked = false
 local a = 0
 function update(dt)
     a = a + dt

@@ -7,17 +7,26 @@ local dead_input_idx = -1
 local dir = 1
 local jump = 0
 local is_collision_down = false
-dead = false
+local checkpoint = {}
 local invincible = 0
 local interact_obj = nil
+local num_lives = 3
+dead = false
 fall_trigger = {}
 start_pos = {}
 respawn_msg = {}
-local checkpoint = {}
+life_icon_0 = {}
+life_icon_1 = {}
+life_icon_2 = {}
+game_over_msg = {}
 
 Editor.setPropertyType(this, "start_pos", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "fall_trigger", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "respawn_msg", Editor.ENTITY_PROPERTY)
+Editor.setPropertyType(this, "life_icon_0", Editor.ENTITY_PROPERTY)
+Editor.setPropertyType(this, "life_icon_1", Editor.ENTITY_PROPERTY)
+Editor.setPropertyType(this, "life_icon_2", Editor.ENTITY_PROPERTY)
+Editor.setPropertyType(this, "game_over_msg", Editor.ENTITY_PROPERTY)
 
 
 function onInputEvent(event)
@@ -35,7 +44,7 @@ function onInputEvent(event)
                     slow = 0
                 end
 			end
-			if dead and event.key_id == string.byte("R") and event.down then
+			if dead and num_lives > 0 and event.key_id == string.byte("R") and event.down then
                 this.parent.position = checkpoint.position
                 respawn_msg.gui_rect.enabled = false
                 dead = false
@@ -64,11 +73,36 @@ function onInputEvent(event)
     end
 end
 
+function upadte_lives_icons()
+    life_icon_0.gui_rect.enabled = num_lives > 0
+    life_icon_1.gui_rect.enabled = num_lives > 1
+    life_icon_2.gui_rect.enabled = num_lives > 2
+end
+
+function kill()
+    dead = true
+    num_lives = num_lives - 1
+    upadte_lives_icons()
+    if num_lives > 0 then
+        respawn_msg.gui_rect.enabled = true
+    else
+        game_over_msg.gui_rect.enabled = true
+    end
+end
+
 function start()
     checkpoint = start_pos;
 
     this.parent.lua_script[0].onTrigger = function(e, touch_lost)
         if e.lua_script then
+            if e.lua_script[0].life then
+                if not e.lua_script[0].picked and num_lives < 3 then
+                    num_lives = num_lives + 1
+                    upadte_lives_icons()
+                    e.model_instance.enabled = false
+                    e.lua_script[0].picked = true
+                end
+            end
             if e.lua_script[0].checkpoint then
                 checkpoint = e
             end
@@ -85,18 +119,14 @@ function start()
             end
         end
         
-        if invincible > 0 then return end
+        if invincible > 0 or dead then return end
         if e._entity == fall_trigger._entity then
-            dead = true
-            respawn_msg.gui_rect.enabled = true
+            kill()
         elseif e.lua_script[0].trap and e.lua_script[0].active then
-            
             e.lua_script[0].triggerTrap()
-            dead = true
-            respawn_msg.gui_rect.enabled = true
+            kill()
         elseif e.lua_script[0].spikes == true then
-            dead = true
-            respawn_msg.gui_rect.enabled = true
+            kill()
         end
     end
 end

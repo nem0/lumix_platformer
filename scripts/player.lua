@@ -15,10 +15,12 @@ dead = false
 fall_trigger = {}
 start_pos = {}
 respawn_msg = {}
+coin_counter = {}
 life_icon_0 = {}
 life_icon_1 = {}
 life_icon_2 = {}
 game_over_msg = {}
+coins = 0
 
 Editor.setPropertyType(this, "start_pos", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "fall_trigger", Editor.ENTITY_PROPERTY)
@@ -27,12 +29,13 @@ Editor.setPropertyType(this, "life_icon_0", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "life_icon_1", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "life_icon_2", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "game_over_msg", Editor.ENTITY_PROPERTY)
+Editor.setPropertyType(this, "coin_counter", Editor.ENTITY_PROPERTY)
 
 
 function onInputEvent(event)
     if event.type == LumixAPI.INPUT_EVENT_BUTTON then
 		if event.device.type == LumixAPI.INPUT_DEVICE_KEYBOARD then
-			if event.key_id == LumixAPI.INPUT_KEYCODE_SPACE then
+			if event.key_id == LumixAPI.INPUT_KEYCODE_SPACE or event.key_id == string.byte("W") then
                 if event.down and is_collision_down then
                     jump = 1
                 end
@@ -95,10 +98,18 @@ function start()
 
     this.parent.lua_script[0].onTrigger = function(e, touch_lost)
         if e.lua_script then
-            if e.lua_script[0].life then
-                if not e.lua_script[0].picked and num_lives < 3 then
+            if e.lua_script[0].life and num_lives < 3 then
+                if not e.lua_script[0].picked  then
                     num_lives = num_lives + 1
                     upadte_lives_icons()
+                    e.model_instance.enabled = false
+                    e.lua_script[0].picked = true
+                end
+            end
+            if e.lua_script[0].coin then
+                if not e.lua_script[0].picked then
+                    coins = coins + 1
+                    coin_counter.gui_text.text = tostring(coins)
                     e.model_instance.enabled = false
                     e.lua_script[0].picked = true
                 end

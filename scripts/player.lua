@@ -21,6 +21,10 @@ life_icon_1 = {}
 life_icon_2 = {}
 game_over_msg = {}
 coins = 0
+coin_sound = -1
+life_sound = -1
+death_sound = -1
+jump_sound = -1
 
 Editor.setPropertyType(this, "start_pos", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "fall_trigger", Editor.ENTITY_PROPERTY)
@@ -30,13 +34,23 @@ Editor.setPropertyType(this, "life_icon_1", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "life_icon_2", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "game_over_msg", Editor.ENTITY_PROPERTY)
 Editor.setPropertyType(this, "coin_counter", Editor.ENTITY_PROPERTY)
+Editor.setPropertyType(this, "coin_sound", Editor.RESOURCE_PROPERTY, "clip")
+Editor.setPropertyType(this, "life_sound", Editor.RESOURCE_PROPERTY, "clip")
+Editor.setPropertyType(this, "death_sound", Editor.RESOURCE_PROPERTY, "clip")
+Editor.setPropertyType(this, "jump_sound", Editor.RESOURCE_PROPERTY, "clip")
 
+function playSound(audio_scene, entity, sound)
+    local path = LumixAPI.getResourcePath(LumixAPI.engine, sound)
+    audio_scene:play(entity, path, false)
+end
 
 function onInputEvent(event)
     if event.type == LumixAPI.INPUT_EVENT_BUTTON then
 		if event.device.type == LumixAPI.INPUT_DEVICE_KEYBOARD then
 			if event.key_id == LumixAPI.INPUT_KEYCODE_SPACE or event.key_id == string.byte("W") then
                 if event.down and is_collision_down then
+                    local audio_scene = this.universe:getScene("audio")
+                    playSound(audio_scene, this, jump_sound)
                     jump = 1
                 end
 			end
@@ -84,6 +98,8 @@ end
 
 function kill()
     dead = true
+    local audio_scene = this.universe:getScene("audio")
+    playSound(audio_scene, this, death_sound)
     num_lives = num_lives - 1
     upadte_lives_icons()
     if num_lives > 0 then
@@ -100,6 +116,8 @@ function start()
         if e.lua_script then
             if e.lua_script[0].life and num_lives < 3 then
                 if not e.lua_script[0].picked  then
+                    local audio_scene = this.universe:getScene("audio")
+                    playSound(audio_scene, this, life_sound)
                     num_lives = num_lives + 1
                     upadte_lives_icons()
                     e.model_instance.enabled = false
@@ -108,6 +126,8 @@ function start()
             end
             if e.lua_script[0].coin then
                 if not e.lua_script[0].picked then
+                    local audio_scene = this.universe:getScene("audio")
+                    playSound(audio_scene, this, coin_sound)
                     coins = coins + 1
                     coin_counter.gui_text.text = tostring(coins)
                     e.model_instance.enabled = false

@@ -6,11 +6,12 @@ local jump_input_idx = -1
 local dead_input_idx = -1
 local dir = 1
 local jump = 0
-local is_collision_down = false
+ is_collision_down = false
 local checkpoint = {}
 local invincible = 0
 local interact_obj = nil
 local num_lives = 3
+local vspeed = 0
 dead = false
 fall_trigger = {}
 start_pos = {}
@@ -49,6 +50,7 @@ function onInputEvent(event)
 		if event.device.type == LumixAPI.INPUT_DEVICE_KEYBOARD then
 			if event.key_id == LumixAPI.INPUT_KEYCODE_SPACE or event.key_id == string.byte("W") then
                 if event.down and is_collision_down then
+                    LumixAPI.logError("jump")
                     local audio_scene = this.universe:getScene("audio")
                     playSound(audio_scene, this, jump_sound)
                     jump = 1
@@ -192,10 +194,16 @@ function update(td)
 
     if not dead then
         is_collision_down = this.parent.physical_controller:isCollisionDown()
+        if is_collision_down then
+            vspeed = 0
+        end
+        vspeed = vspeed - 9.8 * td
+        vspeed = math.max(vspeed, -5.0)
+
         if jump > 0 then 
             this.parent.physical_controller:move({0, 30 * (jump * 2 - 1) * td, 0})
         else
-            this.parent.physical_controller:move({0, td * -9.8, 0})
+            this.parent.physical_controller:move({0, 0.6 * td * vspeed * 9.8, 0})
         end
         if right > 0 then
             this.parent.physical_controller:move({-1 * td * speed, 0, 0})

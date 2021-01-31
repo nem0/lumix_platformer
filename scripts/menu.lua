@@ -23,6 +23,7 @@ function onInputEvent(event)
 end
 
 function start()
+    this.gui_rect.enabled = false
     this.universe:getScene("gui"):getSystem():enableCursor(false)
     restart_button.lua_script[0].onButtonClicked = function()
         player.lua_script[0].restart()

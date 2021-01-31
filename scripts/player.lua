@@ -170,6 +170,10 @@ function clamp(x, a, b)
     return x
 end
 
+function restart()
+    this.parent.position = start_pos.position
+end
+
 function update(td)
     local p = this.parent.position
     this.parent.position = {p[1], p[2], -4}

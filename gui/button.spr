@@ -1,0 +1,6 @@
+type "patch9"
+top(10)
+bottom(35)
+left(10)
+right(39)
+texture "gui/blue_button10.png"

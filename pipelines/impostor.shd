@@ -88,7 +88,7 @@ vertex_shader [[
 		v_tangent = tangent_space[0];
 		v_normal = tangent_space[2];
 		#ifdef VEGETATION
-			p = vegetationAnim(i_pos_scale.xyz, p);
+			p = vegetationAnim(i_pos_scale.xyz, p, 0.001);
 		#endif
 		v_wpos = vec4(i_pos_scale.xyz + p, 1);
 
@@ -104,6 +104,7 @@ fragment_shader [[
 	layout (binding=2) uniform sampler2D u_roughnessmap;
 	layout (binding=3) uniform sampler2D u_metallicmap;
 	layout (binding=4) uniform sampler2D u_selfshadow;
+	layout (binding=6) uniform samplerCubeArray u_reflection_probes;
 	layout (location = 0) in vec2 v_uv;
 	layout (location = 1) in vec3 v_normal;
 	layout (location = 2) in vec3 v_tangent;
@@ -135,12 +136,14 @@ fragment_shader [[
 				);
 		
 		data.wpos = v_wpos.xyz;
-		data.V = normalize(data.wpos);
+		data.V = normalize(-data.wpos);
 		data.roughness = texture(u_roughnessmap, v_uv).r * u_roughness;
 		data.metallic  = texture(u_metallicmap, v_uv).r * u_metallic;
 		data.N = texture(u_normalmap, v_uv).xzy * 2 - 1;
 		data.N = tbn * data.N;
 		data.emission = u_emission;
+		data.translucency = u_translucency;
+		data.ao = 1;
 		return data;
 	}
 	
@@ -166,8 +169,6 @@ fragment_shader [[
 			Surface surface = getSurface();
 			vec4 self_shadow = textureLod(u_selfshadow, v_uv, 0);
 			float shadow = dot(self_shadow, v_shadow_coefs);
-			shadow *= shadow;
-			shadow *= shadow;
 			
 			vec3 res = computeDirectLight(surface
 				, Global.light_dir.xyz
@@ -178,6 +179,7 @@ fragment_shader [[
 			Cluster cluster = getClusterLinearDepth(linear_depth);
 			//res += pointLightsLighting(cluster, surface, shadow_atlas);
 			res += envProbesLighting(cluster, surface);
+			res += reflProbesLighting(cluster, surface, u_reflection_probes);
 
 			o_color = vec4(res, surface.alpha);
 		}

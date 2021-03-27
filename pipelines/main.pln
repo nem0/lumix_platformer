@@ -3,12 +3,12 @@ local textured_quad_shader = preloadShader("pipelines/textured_quad.shd")
 local debug_clusters_shader = preloadShader("pipelines/debug_clusters.shd")
 local tonemap_shader = preloadShader("pipelines/tonemap.shd")
 local selection_outline_shader = preloadShader("pipelines/selection_outline.shd")
-local indirect_specular_shader = preloadShader("pipelines/indirect_specular.shd")
 local blur_shader = preloadShader("pipelines/blur.shd")
 local debug_shadowmap = false
 local debug_normal = false
 local debug_roughness = false
 local debug_metallic = false
+local debug_ao = false
 local debug_albedo = false
 local debug_clusters = false
 local debug_shadow_atlas = false
@@ -16,7 +16,7 @@ local screenshot_request = 0
 local enable_icons = true
 
 local decal_state = {
-	blending = "add",
+	blending = "alpha",
 	depth_write = false
 }
 
@@ -85,7 +85,7 @@ function transparentPass(entities, colorbuffer, dsbuffer, shadowmap)
 	pass(getCameraParams())
 	local bucket = createBucket(entities, "transparent", "", "depth")
 	fur(bucket)
-	bindTextures({ shadowmap }, 4);
+	bindTextures({ shadowmap }, 5);
 	renderBucket(bucket, transparent_state)
 	local view_params = getCameraParams()
 	renderParticles(view_params)
@@ -94,7 +94,7 @@ function transparentPass(entities, colorbuffer, dsbuffer, shadowmap)
 end
 
 function impostorPass(entities, colorbuffer, dsbuffer)
-	setRenderTargetsReadonlyDS(colorbuffer, dsbuffer)
+	setRenderTargetsDS(colorbuffer, dsbuffer)
 
 	beginBlock("impostor_pass")
 	pass(getCameraParams())
@@ -105,9 +105,9 @@ end
 
 function geomPass(entities)
 	beginBlock("geom_pass")
-		local gbuffer0 = createRenderbuffer { width = viewport_w, height = viewport_h, format = "rgba8", debug_name = "gbuffer0" }
-		local gbuffer1 = createRenderbuffer { width = viewport_w, height = viewport_h, format = "rgba16", debug_name = "gbuffer1" }
-		local gbuffer2 = createRenderbuffer { width = viewport_w, height = viewport_h, format = "rgba8", debug_name = "gbuffer2" }
+		local gbuffer0 = createRenderbuffer { width = viewport_w, height = viewport_h, format = "srgba", debug_name = "gbuffer0" }
+		local gbuffer1 = createRenderbuffer { width = viewport_w, height = viewport_h, compute_write = true, format = "rgba16", debug_name = "gbuffer1" }
+		local gbuffer2 = createRenderbuffer { width = viewport_w, height = viewport_h, compute_write = true, format = "rgba8", debug_name = "gbuffer2" }
 		local dsbuffer = createRenderbuffer { width = viewport_w, height = viewport_h, format = "depth24stencil8", debug_name = "gbuffer_ds" }
 	
 		setRenderTargetsDS(gbuffer0, gbuffer1, gbuffer2, dsbuffer)
@@ -149,17 +149,6 @@ function lightPass(gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
 	local view_params = getCameraParams()
 	
 	setRenderTargetsReadonlyDS(hdr_rb, gbuffer_depth)
-	if PROBE_BOUNCE == nil or PROBE_BOUNCE then
-		beginBlock("indirect_specular")
-			bindTextures({
-				gbuffer0,
-				gbuffer1,
-				gbuffer2,
-				gbuffer_depth
-			}, 0)
-			renderReflectionVolumes(view_params, indirect_specular_shader, 4)
-		endBlock()
-	end
 
 	beginBlock("lighting")
 	drawArray(0, 3, lighting_shader,
@@ -169,7 +158,8 @@ function lightPass(gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
 			gbuffer2,
 			gbuffer_depth,
 			shadowmap,
-			SHADOW_ATLAS
+			SHADOW_ATLAS,
+			REFLECTION_PROBES
 		}, 
 		{ 
 			depth_test = false,
@@ -258,6 +248,9 @@ function shadowPass()
 				renderBucket(bucket0, {})
 				renderBucket(bucket1, {})
 
+				if slice < 2 then
+					renderGrass(view_params, grass_state)
+				end
 				renderTerrains(view_params, {define = "DEPTH"})
 				endBlock()
 			end
@@ -271,7 +264,7 @@ function postprocess(phase, hdr_buffer, gbuffer0, gbuffer1, gbuffer2, gbuffer_de
 	local prev = hdr_buffer
 	if _G["postprocesses"] ~= nil then
 		for _, value in pairs(_G["postprocesses"]) do
-			prev = value(getfenv(1), phase, prev, gbuffer0, gbuffer1, gbuffer_depth, shadowmap)
+			prev = value(getfenv(1), phase, prev, gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
 		end
 	end
 	return prev
@@ -283,9 +276,12 @@ function tonemap(hdr_buffer)
 	end
 
 	beginBlock("tonemap")
-	local format = "rgba16f"
-	if APP ~= nil or PREVIEW ~= nil or screenshot_request == 1 then
+	local format = "srgba"
+	if PREVIEW ~= nil then
 		format = "rgba8"
+	end
+	if screenshot_request == 1 then
+		format = "rgba16f"
 	end
 	local rb = createRenderbuffer { width = viewport_w, height = viewport_h, format = format, debug_name = "tonemap" }
 	setRenderTargets(rb)
@@ -312,6 +308,9 @@ function debugPass(output, gb0, gb1, gb2, gb_depth, shadowmap)
 	end
 	if debug_metallic then
 		debugRenderbuffer(gb1, output, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}, {0, 0, 0, 0}, {0, 0, 0, 1})
+	end
+	if debug_ao then
+		debugRenderbuffer(gb2, output, {0, 0, 1, 0}, {0, 0, 1, 0}, {0, 0, 1, 0}, {0, 0, 0, 0}, {0, 0, 0, 1})
 	end
 	if debug_shadow_atlas then
 		debugRenderbuffer(SHADOW_ATLAS, output, {1, 0, 0, 0}, {1, 0, 0, 0}, {1, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 1})
@@ -380,12 +379,13 @@ function main()
 		return
 	end
 
-
 	local view_params = getCameraParams()
 	local entities = cull(view_params)
 
 	local shadowmap = shadowPass()
 	local gbuffer0, gbuffer1, gbuffer2, gbuffer_depth = geomPass(entities)
+
+	postprocess("pre_lightpass", nil, gbuffer0, gbuffer1, gbuffer2, gbuffer_depth, shadowmap)
 
 	if PROBE_BOUNCE == nil or PROBE_BOUNCE then
 		fillClusters(view_params)
@@ -503,6 +503,7 @@ function onGUI()
 		changed, debug_normal = ImGui.Checkbox("Normal", debug_normal)
 		changed, debug_roughness = ImGui.Checkbox("Roughness", debug_roughness)
 		changed, debug_metallic = ImGui.Checkbox("Metallic", debug_metallic)
+		changed, debug_ao = ImGui.Checkbox("AO", debug_ao)
 		changed, debug_clusters = ImGui.Checkbox("Clusters", debug_clusters)
 		changed, enable_icons = ImGui.Checkbox("Icons", enable_icons)
 		changed, default_state.wireframe = ImGui.Checkbox("wireframe", default_state.wireframe)

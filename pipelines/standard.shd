@@ -33,14 +33,18 @@ uniform("Stiffness", "float", 10)
 
 common [[
 	#ifdef SKINNED
-			layout(std140, binding = 4) uniform ModelState {
+		layout(std140, binding = 4) uniform ModelState {
 			float layer;
 			float fur_scale;
 			float fur_gravity;
 			float padding;
 			mat4 matrix;
-			mat4 bones[256];
+			mat2x4 bones[255];
 		} Model;
+	#endif
+
+	#if defined _HAS_ATTR6 && !defined GRASS
+		#define HAS_LOD
 	#endif
 ]]
 
@@ -63,36 +67,43 @@ vertex_shader [[
 	#elif defined INSTANCED || defined GRASS
 		layout(location = 4) in vec4 i_rot_quat;
 		layout(location = 5) in vec4 i_pos_scale;
-		layout(location = 6) in float i_lod;
 		#ifdef _HAS_ATTR7
 			layout(location = 7) in vec4 a_color;
 			layout(location = 6) out vec4 v_color;
+		#endif
+		#ifdef _HAS_ATTR8
+			layout(location = 8) in float a_ao;
+			layout(location = 7) out float v_ao;
 		#endif
 	#else
 		layout(std140, binding = 4) uniform ModelState {
 			mat4 matrix;
 		} Model;
 	#endif
+	#ifdef HAS_LOD
+		layout(location = 6) in float i_lod;
+		layout(location = 4) out float v_lod;
+	#endif
 	
 	layout(location = 0) out vec2 v_uv;
 	layout(location = 1) out vec3 v_normal;
 	layout(location = 2) out vec3 v_tangent;
 	layout(location = 3) out vec4 v_wpos;
-	layout(location = 4) out float v_lod;
 	#ifdef GRASS
 		layout(location = 5) out float v_darken;
 	#endif
 	
 	void main() {
-		v_lod = 0;
 		v_uv = a_uv;
 		#if defined INSTANCED || defined GRASS
 			v_normal = rotateByQuat(i_rot_quat, a_normal);
 			v_tangent = rotateByQuat(i_rot_quat, a_tangent);
 			vec3 p = a_position * i_pos_scale.w;
-			v_lod = i_lod;
+			#ifdef HAS_LOD
+				v_lod = i_lod;
+			#endif
 			#if defined GRASS && defined VEGETATION
-				p = vegetationAnim(i_pos_scale.xyz, p, 1 / (1 + u_stiffness));
+				p = vegetationAnim(i_pos_scale.xyz, p, 1 / (1.0 + u_stiffness));
 				v_darken = a_position.y > 0.1 ? 1 : 0.0;
 			#elif defined VEGETATION
 				#ifdef DEPTH
@@ -105,18 +116,30 @@ vertex_shader [[
 			#ifdef _HAS_ATTR7
 				v_color = a_color;
 			#endif
-		#elif defined SKINNED
-			mat4 model_mtx = Model.matrix * (a_weights.x * Model.bones[a_indices.x] + 
-			a_weights.y * Model.bones[a_indices.y] +
-			a_weights.z * Model.bones[a_indices.z] +
-			a_weights.w * Model.bones[a_indices.w]);
-			v_normal = mat3(model_mtx) * a_normal;
-			v_tangent = mat3(model_mtx) * a_tangent;
-			#ifdef FUR
-				v_wpos = model_mtx * vec4(a_position + (a_normal + vec3(0, -Model.fur_gravity * Model.layer, 0)) * Model.layer * Model.fur_scale,  1);
-			#else
-				v_wpos = model_mtx * vec4(a_position,  1);
+			#ifdef _HAS_ATTR8
+				v_ao = a_ao;
 			#endif
+		#elif defined SKINNED
+			mat2x4 dq = a_weights.x * Model.bones[a_indices.x];
+			float w = dot(Model.bones[a_indices.y][0], Model.bones[a_indices.x][0]) < 0 ? -a_weights.y : a_weights.y;
+			dq += w * Model.bones[a_indices.y];
+			w = dot(Model.bones[a_indices.z][0], Model.bones[a_indices.x][0]) < 0 ? -a_weights.z : a_weights.z;
+			dq += w * Model.bones[a_indices.z];
+			w = dot(Model.bones[a_indices.w][0], Model.bones[a_indices.x][0]) < 0 ? -a_weights.w : a_weights.w;
+			dq += w * Model.bones[a_indices.w];
+			
+			dq *= 1 / length(dq[0]);
+
+			mat3 m = mat3(Model.matrix);
+			v_normal = m * rotateByQuat(dq[0], a_normal);
+			v_tangent = m * rotateByQuat(dq[0], a_tangent);
+			vec3 mpos;
+			#ifdef FUR
+				mpos = a_position + (a_normal + vec3(0, -Model.fur_gravity * Model.layer, 0)) * Model.layer * Model.fur_scale;
+			#else
+				mpos = a_position;
+			#endif
+			v_wpos = Model.matrix * vec4(transformByDualQuat(dq, mpos), 1);
 		#else 
 			mat4 model_mtx = Model.matrix;
 			v_normal = mat3(model_mtx) * a_normal;
@@ -145,19 +168,26 @@ fragment_shader [[
 		layout (binding=4) uniform sampler2D u_aomap;
 	#endif
 	layout (binding=5) uniform sampler2D u_shadowmap;
-	layout (binding=6) uniform sampler2D u_shadow_atlas;
-	layout (binding=7) uniform samplerCubeArray u_reflection_probes;
+	#if !defined DEPTH && !defined DEFERRED && !defined GRASS
+		layout (binding=6) uniform sampler2D u_shadow_atlas;
+		layout (binding=7) uniform samplerCubeArray u_reflection_probes;
+	#endif
 	
 	layout(location = 0) in vec2 v_uv;
 	layout(location = 1) in vec3 v_normal;
 	layout(location = 2) in vec3 v_tangent;
 	layout(location = 3) in vec4 v_wpos;
-	layout(location = 4) in float v_lod;
+	#ifdef HAS_LOD
+		layout(location = 4) in float v_lod;
+	#endif
 	#ifdef GRASS
 		layout(location = 5) in float v_darken;
 	#endif
 	#ifdef _HAS_ATTR7
 		layout(location = 6) in vec4 v_color;
+	#endif
+	#ifdef _HAS_ATTR8
+		layout(location = 7) in float v_ao;
 	#endif
 
 	#if defined DEFERRED || defined GRASS
@@ -170,7 +200,9 @@ fragment_shader [[
 
 	Surface getSurface()
 	{
-		if (ditherLOD(v_lod)) discard;
+		#ifdef HAS_LOD
+			if (ditherLOD(v_lod)) discard;
+		#endif
 
 		Surface data;
 		vec4 c = texture(u_albedomap, v_uv) * u_material_color;
@@ -180,7 +212,10 @@ fragment_shader [[
 			data.albedo *= v_darken;
 		#endif
 		#ifdef _HAS_ATTR7
-			data.ao = v_color.r;
+			data.albedo.rgb *= v_color.rgb;
+		#endif
+		#ifdef _HAS_ATTR8
+			data.ao = v_ao;
 		#else
 			data.ao = 1;
 		#endif
@@ -228,6 +263,9 @@ fragment_shader [[
 	#ifdef DEPTH
 		void main()
 		{
+			#ifdef HAS_LOD
+				if (ditherLOD(v_lod)) discard;
+			#endif
 			#ifdef ALPHA_CUTOUT
 				vec4 c = texture(u_albedomap, v_uv);
 				if(c.a < 0.5) discard;

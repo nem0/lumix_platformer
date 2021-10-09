@@ -1,3 +1,4 @@
+intensity = 1.0
 sky = -1
 Editor.setPropertyType(this, "sky", Editor.RESOURCE_PROPERTY, "texture")
 
@@ -13,8 +14,8 @@ function postprocess(env, transparent_phase, hdr_buffer, gbuffer0, gbuffer1, gbu
 	env.bindTextures({sky}, 0)
 	local state = {
 		stencil_write_mask = 0,
-		stencil_func = env.STENCIL_NOT_EQUAL,
-		stencil_ref = 1,
+		stencil_func = env.STENCIL_EQUAL,
+		stencil_ref = 0,
 		stencil_mask = 0xff,
 		stencil_sfail = env.STENCIL_KEEP,
 		stencil_zfail = env.STENCIL_KEEP,
@@ -22,6 +23,7 @@ function postprocess(env, transparent_phase, hdr_buffer, gbuffer0, gbuffer1, gbu
 		depth_write = false,
 		depth_test = false
 	}
+	env.drawcallUniforms(intensity, 0, 0, 0)
 	env.drawArray(0, 3, env.cubemap_sky_shader, {}, state)
 	env.endBlock()
 	return hdr_buffer
@@ -34,4 +36,8 @@ end
 
 function onDestroy()
 	_G["postprocesses"]["cubemap_sky"] = nil
+end
+
+function onUnload()
+	onDestroy()
 end

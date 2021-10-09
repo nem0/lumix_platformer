@@ -1,3 +1,4 @@
+sky = true
 object_atmo = true
 height_distribution_rayleigh = 8000
 height_distribution_mie = 1200
@@ -8,7 +9,7 @@ scatter_fog = { 1, 1, 1 }
 scatter_mie = { 1, 1, 1 }
 absorb_mie = {1, 1, 1 }
 sunlight_color = {1, 1, 1}
-sunlight_strength = 40
+sunlight_strength = 10
 cloud_param0 = 1
 cloud_param1 = 1
 cloud_param2 = 1
@@ -18,6 +19,7 @@ enable_fog = false
 enable_godrays = false
 fog_top = 100
 fog_density = 1
+
 Editor.setPropertyType(this, "scatter_fog", Editor.COLOR_PROPERTY)
 Editor.setPropertyType(this, "scatter_rayleigh", Editor.COLOR_PROPERTY)
 Editor.setPropertyType(this, "scatter_mie", Editor.COLOR_PROPERTY)
@@ -101,8 +103,8 @@ function postprocess(env, transparent_phase, hdr_buffer, gbuffer0, gbuffer1, gbu
 		depth_write = false,
 		depth_test = false,
 		stencil_write_mask = 0,
-		stencil_func = env.STENCIL_NOT_EQUAL,
-		stencil_ref = 1,
+		stencil_func = env.STENCIL_EQUAL,
+		stencil_ref = 0,
 		stencil_mask = 0xff,
 		stencil_sfail = env.STENCIL_KEEP,
 		stencil_zfail = env.STENCIL_KEEP,
@@ -110,8 +112,16 @@ function postprocess(env, transparent_phase, hdr_buffer, gbuffer0, gbuffer1, gbu
 	}
 	if object_atmo == false then
 		state.stencil_write_mask = 0
+		state.stencil_func = env.STENCIL_EQUAL
+		state.stencil_ref = 0
+		state.stencil_mask = 0xff
+		state.stencil_sfail = env.STENCIL_KEEP
+		state.stencil_zfail = env.STENCIL_KEEP
+		state.stencil_zpass = env.STENCIL_KEEP
+	elseif not sky then
+		state.stencil_write_mask = 0
 		state.stencil_func = env.STENCIL_NOT_EQUAL
-		state.stencil_ref = 1
+		state.stencil_ref = 0
 		state.stencil_mask = 0xff
 		state.stencil_sfail = env.STENCIL_KEEP
 		state.stencil_zfail = env.STENCIL_KEEP
@@ -159,6 +169,10 @@ end
 function awake()
 	_G["postprocesses"] = _G["postprocesses"] or {}
 	_G["postprocesses"]["atmo"] = postprocess
+end
+
+function onUnload()
+	_G["postprocesses"]["atmo"] = nil
 end
 
 function onDestroy()

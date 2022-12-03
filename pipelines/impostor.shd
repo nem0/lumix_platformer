@@ -10,34 +10,37 @@ texture_slot {
 
 texture_slot {
 	name = "Self shadow",
-	default_texture = "textures/common/white.tga"
+	define = "HAS_SELFSHADOW"
+}
+
+texture_slot {
+	name = "Depth",
+	define = "HAS_DEPTHMAP"
 }
 
 include "pipelines/common.glsl"
 
 define "ALPHA_CUTOUT"
-define "VEGETATION"
+uniform("Material color", "color", {1, 1, 1, 1})
+uniform("Roughness", "float", 1)
+uniform("Metallic", "float", 0)
+uniform("Emission", "float", 0)
+uniform("Translucency", "float", 0)
 uniform("Center", "vec3")
+uniform("Radius", "float")
 
 ------------------
 
 vertex_shader [[
 	layout(location = 0) in vec3 a_position;
 	layout(location = 1) in vec2 a_uv;
-	layout(location = 2) in vec3 a_normal;
-	#ifdef _HAS_ATTR3 
-		layout(location = 3) in vec3 a_tangent;
-	#else 
-		const vec3 a_tangent = vec3(0, 1, 0);
-	#endif
-	layout(location = 4) in vec4 i_rot_quat;
+	layout(location = 4) in vec4 i_rot_lod;
 	layout(location = 5) in vec4 i_pos_scale;
-	layout(location = 6) in float i_lod;
 	layout (location = 0) out vec2 v_uv;
 	layout (location = 1) out vec3 v_normal;
 	layout (location = 2) out vec3 v_tangent;
 	layout (location = 3) out vec4 v_wpos;
-	#if !defined DEPTH && !defined DEFERRED
+	#if !defined DEPTH && defined HAS_SELFSHADOW
 		layout (location = 4) out vec4 v_shadow_coefs;
 	#endif
 	layout (location = 5) out float v_lod;
@@ -62,10 +65,10 @@ vertex_shader [[
 		tangent_space[2] = cross(tangent_space[0], tangent_space[1]);
 
 		vec3 vd = vec3(N.x, N.y, N.z);
-		vec4 to_model_space = vec4(-i_rot_quat.xyz, i_rot_quat.w);
+		vec4 to_model_space = vec4(-i_rot_lod.xyz, sqrt(1 - dot(i_rot_lod.xyz, i_rot_lod.xyz)));
 		vd = rotateByQuat(to_model_space, vd);
-		v_lod = i_lod;
-		#if !defined DEPTH && !defined DEFERRED
+		v_lod = i_rot_lod.w;
+		#if !defined DEPTH && defined HAS_SELFSHADOW
 			vec3 ld = rotateByQuat(to_model_space, -Global.light_dir.xyz);
 			v_shadow_coefs = max(vec4(ld.x, -ld.z, -ld.x, ld.z), vec4(0));
 			v_shadow_coefs /= dot(v_shadow_coefs, vec4(1));
@@ -73,13 +76,15 @@ vertex_shader [[
 		vec2 grid = dirToGrid(normalize(vd));
 		v_uv = a_uv / 9 + ivec2(grid * 9) / 9.0;
 
-		vec3 p = u_center.xyz + tangent_space * (a_position - u_center.xyz);
+		#ifdef DEPTH
+		    // move to avoid selfshadow
+			vec3 p = u_center.xyz + tangent_space * (a_position + vec3(0, 0, u_center.y) - u_center.xyz);
+		#else
+			vec3 p = u_center.xyz + tangent_space * (a_position - u_center.xyz);
+		#endif
 		p *= i_pos_scale.w;
 		v_tangent = tangent_space[0];
 		v_normal = tangent_space[2];
-		#ifdef VEGETATION
-			p = vegetationAnim(i_pos_scale.xyz, p, 0.001);
-		#endif
 		v_wpos = vec4(i_pos_scale.xyz + p, 1);
 
 		gl_Position = Pass.view_projection * v_wpos;		
@@ -89,16 +94,20 @@ vertex_shader [[
 ---------------------
 
 fragment_shader [[
-	layout (binding=0) uniform sampler2D u_albedomap;
+	layout (binding=0) uniform sampler2D t_albedo;
 	#ifdef HAS_NORMAL
-		layout (binding=1) uniform sampler2D u_normalmap;
+		layout (binding=1) uniform sampler2D t_normal;
 	#endif
-	layout (binding=2) uniform sampler2D u_selfshadow;
-	layout (binding=6) uniform samplerCubeArray u_reflection_probes;
+	layout (binding=2) uniform sampler2D t_selfshadow;
+	layout (binding=3) uniform sampler2D t_depth;
+	layout (binding=7) uniform samplerCubeArray u_reflection_probes;
 	layout (location = 0) in vec2 v_uv;
 	layout (location = 1) in vec3 v_normal;
 	layout (location = 2) in vec3 v_tangent;
 	layout (location = 3) in vec4 v_wpos;
+	#if !defined DEPTH && defined HAS_SELFSHADOW
+		layout(location = 4) in vec4 v_shadow_coefs;
+	#endif
 
 	#ifdef DEFERRED
 		layout(location = 0) out vec4 o_gbuffer0;
@@ -106,14 +115,13 @@ fragment_shader [[
 		layout(location = 2) out vec4 o_gbuffer2;
 	#elif !defined DEPTH
 		layout(location = 0) out vec4 o_color;
-		layout (location = 4) in vec4 v_shadow_coefs;
 	#endif
 	layout (location = 5) in float v_lod;
 
 	Surface getSurface()
 	{
 		Surface data;
-		vec4 c = texture(u_albedomap, v_uv) * u_material_color;
+		vec4 c = texture(t_albedo, v_uv) * u_material_color;
 		data.albedo = c.rgb;
 		data.alpha = c.a;
 		#ifdef ALPHA_CUTOUT
@@ -130,7 +138,7 @@ fragment_shader [[
 		data.roughness = u_roughness;
 		data.metallic = u_metallic;
 		#ifdef HAS_NORMAL
-			data.N.xz = texture(u_normalmap, v_uv).xy * 2 - 1;
+			data.N.xz = texture(t_normal, v_uv).xy * 2 - 1;
 			data.N.y = sqrt(saturate(1 - dot(data.N.xz, data.N.xz))); 		
 			data.N = tbn * data.N;
 		#else
@@ -139,6 +147,16 @@ fragment_shader [[
 		data.emission = u_emission;
 		data.translucency = u_translucency;
 		data.ao = 1;
+		
+		#if !defined DEPTH && defined HAS_SELFSHADOW
+			vec4 self_shadow = texture(t_selfshadow, v_uv);
+			data.shadow = saturate(dot(self_shadow, v_shadow_coefs));
+			data.shadow *= data.shadow;
+			data.ao = dot(self_shadow, vec4(1)) * 0.25;
+		#else
+			data.shadow = 1;
+		#endif
+		
 		return data;
 	}
 	
@@ -147,7 +165,7 @@ fragment_shader [[
 		{
 			if (ditherLOD(v_lod)) discard;
 			#ifdef ALPHA_CUTOUT
-				vec4 c = texture(u_albedomap, v_uv);
+				vec4 c = texture(t_albedo, v_uv);
 				if(c.a < 0.5) discard;
 			#endif
 		}
@@ -156,6 +174,11 @@ fragment_shader [[
 		{
 			Surface data = getSurface();
 			packSurface(data, o_gbuffer0, o_gbuffer1, o_gbuffer2);
+			#ifdef HAS_DEPTHMAP
+				float depth = texture(t_depth, v_uv).x;
+				float linear_z = toLinearDepth(Pass.inv_projection, gl_FragCoord.z);
+				gl_FragDepth = 0.1 / (linear_z + (depth - 0.5) * u_radius); // TODO remove hardcoded near plane 0.1
+			#endif
 		}
 	#else
 		void main()
@@ -163,12 +186,9 @@ fragment_shader [[
 			if (ditherLOD(v_lod)) discard;
 
 			Surface surface = getSurface();
-			vec4 self_shadow = texture(u_selfshadow, v_uv);
-			float shadow = saturate(dot(self_shadow, v_shadow_coefs));
-			
 			vec3 res = computeDirectLight(surface
 				, Global.light_dir.xyz
-				, Global.light_color.rgb * Global.light_intensity * shadow);
+				, Global.light_color.rgb * Global.light_intensity * surface.shadow);
 			res += surface.emission * surface.albedo;
 
 			float linear_depth = dot(surface.wpos.xyz, Pass.view_dir.xyz);

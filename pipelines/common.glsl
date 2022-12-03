@@ -73,6 +73,7 @@ struct Surface {
 	float emission;
 	float translucency;
 	float ao;
+	float shadow;
 	vec3 N;
 	vec3 V;
 	vec3 wpos;
@@ -89,6 +90,7 @@ struct SMSlice {
 layout (std140, binding = 0) uniform GlobalState {
 	SMSlice sm_slices[4];
 	mat4 projection;
+	mat4 projection_no_jitter;
 	mat4 inv_projection;
 	mat4 view;
 	mat4 inv_view;
@@ -99,6 +101,7 @@ layout (std140, binding = 0) uniform GlobalState {
 	vec4 light_dir;
 	vec4 light_color;
 	ivec2 framebuffer_size;
+	vec2 pixel_jitter;
 	float light_intensity;
 	float light_indirect_intensity;
 	float time;
@@ -399,11 +402,9 @@ vec3 computeDirectLight(Surface surface, vec3 L, vec3 light_color)
 
 	// F Schlick 
 	vec3 F = F_Schlick(hdotv, F0);// mix(F0, vec3(1), pow(1.0 - hdotv, 5.0)); 
+	vec3 specular = D * V * F;
 	
-	vec3 specular = D * V * F * 0.25;
-	
-	vec3 kD = vec3(1.0) - F;
-	kD *= 1.0 - surface.metallic;
+	float kD = 1.0 - surface.metallic;
 	
 	vec3 diffuse = kD * surface.albedo / M_PI;
 	return (diffuse + specular) * light_color * ndotl
@@ -480,10 +481,10 @@ vec3 reflProbesLighting(Cluster cluster, Surface surface, samplerCubeArray refle
 		float w = 1 - max(rpos.x, max(rpos.y, rpos.z));
 		w = min(remaining_w, w);
 		remaining_w -= w;
-		res += radiance * brdf * w;
+		res += radiance * w;
 	}
 
-	return (remaining_w > 0.999 ? vec3(0) : res / (1 - remaining_w)) * surface.ao * Global.light_indirect_intensity;
+	return (remaining_w > 0.999 ? vec3(0) : res * brdf / (1 - remaining_w)) * surface.ao * Global.light_indirect_intensity;
 }
 
 vec3 envProbesLighting(Cluster cluster, Surface surface) {
@@ -512,10 +513,10 @@ vec3 envProbesLighting(Cluster cluster, Surface surface) {
 		vec3 irradiance = evalSH(b_env_probes[probe_idx], surface.N);
 		irradiance = max(vec3(0), irradiance);
 		vec3 indirect = computeIndirectDiffuse(irradiance, surface);
-		probe_light += (indirect * Global.light_indirect_intensity) * w / M_PI;
+		probe_light += indirect * w;
 		if (remaining_w <= 0) break;
 	}
-	return (remaining_w < 1 ? probe_light / (1 - remaining_w) : vec3(0)) * surface.ao;
+	return (remaining_w < 1 ? probe_light / (1 - remaining_w) / M_PI : vec3(0)) * surface.ao * Global.light_indirect_intensity;
 }
 
 // must match ShadowAtlas::getUV
@@ -584,16 +585,10 @@ float rand(vec3 seed)
 	return fract(sin(dot_product) * 43758.5453);
 }
 
-vec3 vegetationAnim(vec3 obj_pos, vec3 vertex_pos, float strength) {
-	obj_pos += Global.camera_world_pos.xyz;
-	vertex_pos.x += vertex_pos.y > 0.1 ? cos((obj_pos.x + obj_pos.y + obj_pos.z * 2) * 0.3 + Global.time * 2) * vertex_pos.y * vertex_pos.y * strength : 0;
-	return vertex_pos;
-}
-
 void packSurface(Surface surface, out vec4 gbuffer0, out vec4 gbuffer1, out vec4 gbuffer2) {
 	gbuffer0 = vec4(surface.albedo.rgb, surface.roughness);
-	gbuffer1 = vec4(surface.N * 0.5 + 0.5, surface.metallic);
-	gbuffer2 = vec4(packEmission(surface.emission), surface.translucency, surface.ao, 1);
+	gbuffer1 = vec4(surface.N * 0.5 + 0.5, surface.ao);
+	gbuffer2 = vec4(packEmission(surface.emission), surface.translucency, surface.metallic, surface.shadow);
 }
 
 Surface unpackSurface(vec2 uv, sampler2D gbuffer0, sampler2D gbuffer1, sampler2D gbuffer2, sampler2D gbuffer_depth, out float ndc_depth) {
@@ -605,17 +600,18 @@ Surface unpackSurface(vec2 uv, sampler2D gbuffer0, sampler2D gbuffer1, sampler2D
 	surface.albedo = gb0.rgb;
 	surface.N = gb1.rgb * 2 - 1;
 	surface.roughness = gb0.a;
-	surface.metallic = gb1.a;
+	surface.metallic = gb2.z;
 	surface.emission = unpackEmission(gb2.x);
 	surface.wpos = getViewPosition(gbuffer_depth, Global.inv_view_projection, uv, ndc_depth);
 	surface.V = normalize(-surface.wpos);
 	surface.translucency = gb2.y;
-	surface.ao = gb2.z;
+	surface.ao = gb1.w;
+	surface.shadow = gb2.w;
 	return surface;
 }
 
 vec3 computeLighting(Cluster cluster, Surface surface, vec3 light_direction, vec3 light, sampler2D shadowmap, sampler2D shadow_atlas, samplerCubeArray reflection_probes) {
-	float shadow = getShadow(shadowmap, surface.wpos, surface.N);
+	float shadow = min(surface.shadow, getShadow(shadowmap, surface.wpos, surface.N));
 	vec3 res = computeDirectLight(surface
 		, light_direction
 		, light * shadow);

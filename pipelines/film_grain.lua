@@ -7,7 +7,8 @@ function postprocess(env, transparent_phase, ldr_buffer, gbuffer0, gbuffer1, gbu
 	if not enabled then return ldr_buffer end
 	if transparent_phase ~= "post_tonemap" then return ldr_buffer end
 	if noise == -1 then return ldr_buffer end
-	local res = env.createRenderbuffer { width = env.viewport_w, height = env.viewport_h, format = "rgba8", debug_name = "film_grain" }
+	env.film_grain_rb_desc = env.film_grain_rb_desc or env.createRenderbufferDesc { rel_size = {1, 1}, format = "rgba8", debug_name = "film_grain" }
+	local res = env.createRenderbuffer(env.film_grain_rb_desc)
 	env.beginBlock("film_grain")
 	if env.film_grain_shader == nil then
 		env.film_grain_shader = env.preloadShader("pipelines/film_grain.shd")
@@ -18,7 +19,7 @@ function postprocess(env, transparent_phase, ldr_buffer, gbuffer0, gbuffer1, gbu
 	env.bindTextures({noise}, 1)
 	env.drawArray(0, 3, env.film_grain_shader, 
 		{ ldr_buffer },
-		{ depth_test = false, blending = ""}
+		env.empty_state
 	)
 	env.endBlock()
 	return res

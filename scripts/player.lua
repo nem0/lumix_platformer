@@ -51,7 +51,7 @@ function onInputEvent(event)
 			if event.key_id == LumixAPI.INPUT_KEYCODE_SPACE or event.key_id == string.byte("W") then
                 if event.down and is_collision_down then
                     LumixAPI.logError("jump")
-                    local audio_scene = this.universe:getScene("audio")
+                    local audio_scene = this.world:getScene("audio")
                     playSound(audio_scene, this, jump_sound)
                     jump = 1
                 end
@@ -100,7 +100,7 @@ end
 
 function kill()
     dead = true
-    local audio_scene = this.universe:getScene("audio")
+    local audio_scene = this.world:getScene("audio")
     playSound(audio_scene, this, death_sound)
     num_lives = num_lives - 1
     upadte_lives_icons()
@@ -118,7 +118,7 @@ function start()
         if e.lua_script then
             if e.lua_script[0].life and num_lives < 3 then
                 if not e.lua_script[0].picked  then
-                    local audio_scene = this.universe:getScene("audio")
+                    local audio_scene = this.world:getScene("audio")
                     playSound(audio_scene, this, life_sound)
                     num_lives = num_lives + 1
                     upadte_lives_icons()
@@ -128,7 +128,7 @@ function start()
             end
             if e.lua_script[0].coin then
                 if not e.lua_script[0].picked then
-                    local audio_scene = this.universe:getScene("audio")
+                    local audio_scene = this.world:getScene("audio")
                     playSound(audio_scene, this, coin_sound)
                     coins = coins + 1
                     coin_counter.gui_text.text = tostring(coins)

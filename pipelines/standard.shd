@@ -1,16 +1,16 @@
 import "pipelines/surface_base.inc"
 
 uniform("Material color", "color", {1, 1, 1, 1})
-uniform("Roughness", "float", 1)
-uniform("Metallic", "float", 0)
+uniform("Roughness", "normalized_float", 1)
+uniform("Metallic", "normalized_float", 0)
 uniform("Emission", "float", 0)
-uniform("Translucency", "float", 0)
+uniform("Translucency", "normalized_float", 0)
 
 surface_shader [[
 	vec4 c = texture(t_albedo, v_uv, -1) * u_material_color;
 	data.albedo = c.rgb;
 	data.alpha = c.a;
-	#ifdef _HAS_ATTR6
+	#ifdef HAS_VERTEX_COLOR
 		data.albedo.rgb *= v_color.rgb;
 	#endif
 
@@ -26,11 +26,6 @@ surface_shader [[
 
 	#ifdef FUR 
 		data.alpha = saturate(data.alpha - v_fur_layer);
-	#endif
-
-	// dx shader has internal errors on this
-	#if defined ALPHA_CUTOUT && !defined LUMIX_DX_SHADER 
-		if(data.alpha < 0.5) discard;
 	#endif
 
 	vec3 N = v_normal;

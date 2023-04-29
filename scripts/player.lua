@@ -40,9 +40,9 @@ Editor.setPropertyType(this, "life_sound", Editor.RESOURCE_PROPERTY, "clip")
 Editor.setPropertyType(this, "death_sound", Editor.RESOURCE_PROPERTY, "clip")
 Editor.setPropertyType(this, "jump_sound", Editor.RESOURCE_PROPERTY, "clip")
 
-function playSound(audio_scene, entity, sound)
+function playSound(audio_module, entity, sound)
     local path = LumixAPI.getResourcePath(LumixAPI.engine, sound)
-    audio_scene:play(entity, path, false)
+    audio_module:play(entity, path, false)
 end
 
 function onInputEvent(event)
@@ -51,8 +51,8 @@ function onInputEvent(event)
 			if event.key_id == LumixAPI.INPUT_KEYCODE_SPACE or event.key_id == string.byte("W") then
                 if event.down and is_collision_down then
                     LumixAPI.logError("jump")
-                    local audio_scene = this.world:getScene("audio")
-                    playSound(audio_scene, this, jump_sound)
+                    local audio_module = this.world:getModule("audio")
+                    playSound(audio_module, this, jump_sound)
                     jump = 1
                 end
 			end
@@ -100,8 +100,8 @@ end
 
 function kill()
     dead = true
-    local audio_scene = this.world:getScene("audio")
-    playSound(audio_scene, this, death_sound)
+    local audio_module = this.world:getModule("audio")
+    playSound(audio_module, this, death_sound)
     num_lives = num_lives - 1
     upadte_lives_icons()
     if num_lives > 0 then
@@ -118,8 +118,8 @@ function start()
         if e.lua_script then
             if e.lua_script[0].life and num_lives < 3 then
                 if not e.lua_script[0].picked  then
-                    local audio_scene = this.world:getScene("audio")
-                    playSound(audio_scene, this, life_sound)
+                    local audio_module = this.world:getModule("audio")
+                    playSound(audio_module, this, life_sound)
                     num_lives = num_lives + 1
                     upadte_lives_icons()
                     e.model_instance.enabled = false
@@ -128,8 +128,8 @@ function start()
             end
             if e.lua_script[0].coin then
                 if not e.lua_script[0].picked then
-                    local audio_scene = this.world:getScene("audio")
-                    playSound(audio_scene, this, coin_sound)
+                    local audio_module = this.world:getModule("audio")
+                    playSound(audio_module, this, coin_sound)
                     coins = coins + 1
                     coin_counter.gui_text.text = tostring(coins)
                     e.model_instance.enabled = false

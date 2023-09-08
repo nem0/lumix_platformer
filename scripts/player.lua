@@ -50,7 +50,6 @@ function onInputEvent(event)
 		if event.device.type == LumixAPI.INPUT_DEVICE_KEYBOARD then
 			if event.key_id == LumixAPI.INPUT_KEYCODE_SPACE or event.key_id == string.byte("W") then
                 if event.down and is_collision_down then
-                    LumixAPI.logError("jump")
                     local audio_module = this.world:getModule("audio")
                     playSound(audio_module, this, jump_sound)
                     jump = 1

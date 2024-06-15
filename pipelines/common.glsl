@@ -77,6 +77,7 @@ struct Surface {
 	vec3 N;
 	vec3 V;
 	vec3 wpos;
+	vec2 motion;
 };
 
 struct SMSlice {
@@ -90,18 +91,25 @@ struct SMSlice {
 layout (std140, binding = 0) uniform GlobalState {
 	SMSlice sm_slices[4];
 	mat4 projection;
+	mat4 prev_projection;
 	mat4 projection_no_jitter;
+	mat4 prev_projection_no_jitter;
 	mat4 inv_projection;
 	mat4 view;
 	mat4 inv_view;
 	mat4 view_projection;
+	mat4 view_projection_no_jitter;
+	mat4 prev_view_projection_no_jitter;
 	mat4 inv_view_projection;
 	mat4 reprojection;
 	vec4 camera_world_pos;
+	vec4 to_prev_frame_camera_translation;
 	vec4 light_dir;
 	vec4 light_color;
 	ivec2 framebuffer_size;
 	vec2 pixel_jitter;
+	vec2 prev_pixel_jitter;
+	vec2 padding_;
 	float light_intensity;
 	float light_indirect_intensity;
 	float time;
@@ -181,13 +189,17 @@ vec3 ACESFilm(vec3 x)
 	}
 #endif
 
+vec2 toScreenUV(vec2 uv) {
+	#ifdef _ORIGIN_BOTTOM_LEFT
+		return uv;
+	#else
+		return vec2(uv.x, 1 - uv.y);
+	#endif
+}
+
 vec4 fullscreenQuad(int vertexID, out vec2 uv) {
 	uv = vec2((vertexID & 1) * 2, vertexID & 2);
-	#ifdef _ORIGIN_BOTTOM_LEFT
-		return vec4(uv * 2 - 1, 0, 1);
-	#else
-		return vec4(uv.x * 2 - 1, -uv.y * 2 + 1, 0, 1);
-	#endif
+	return vec4(toScreenUV(uv) * 2 - 1, 0, 1);
 }
 
 float packEmission(float emission)
@@ -259,11 +271,7 @@ vec2 raySphereIntersect(vec3 r0, vec3 rd, vec3 s0, float sr) {
 vec3 getWorldNormal(vec2 frag_coord)
 {
 	float z = 1;
-	#ifdef _ORIGIN_BOTTOM_LEFT
-		vec4 posProj = vec4(frag_coord * 2 - 1, z, 1.0);
-	#else
-		vec4 posProj = vec4(vec2(frag_coord.x, 1-frag_coord.y) * 2 - 1, z, 1.0);
-	#endif
+	vec4 posProj = vec4(toScreenUV(frag_coord) * 2 - 1, z, 1.0);
 	vec4 wpos = Global.inv_view_projection * posProj;
 	wpos /= wpos.w;
 	vec3 view = (Global.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz - wpos.xyz;
@@ -274,11 +282,7 @@ vec3 getWorldNormal(vec2 frag_coord)
 vec3 getViewPosition(sampler2D depth_buffer, mat4 inv_view_proj, vec2 tex_coord, out float ndc_depth)
 {
 	float z = texture(depth_buffer, tex_coord).r;
-	#ifdef _ORIGIN_BOTTOM_LEFT
-		vec4 pos_proj = vec4(tex_coord * 2 - 1, z, 1.0);
-	#else 
-		vec4 pos_proj = vec4(vec2(tex_coord.x, 1-tex_coord.y) * 2 - 1, z, 1.0);
-	#endif
+	vec4 pos_proj = vec4(toScreenUV(tex_coord) * 2 - 1, z, 1.0);
 	vec4 view_pos = inv_view_proj * pos_proj;
 	ndc_depth = z;
 	return view_pos.xyz / view_pos.w;
@@ -287,11 +291,7 @@ vec3 getViewPosition(sampler2D depth_buffer, mat4 inv_view_proj, vec2 tex_coord,
 vec3 getViewPosition(sampler2D depth_buffer, mat4 inv_view_proj, vec2 tex_coord)
 {
 	float z = texture(depth_buffer, tex_coord).r;
-	#ifdef _ORIGIN_BOTTOM_LEFT
-		vec4 pos_proj = vec4(tex_coord * 2 - 1, z, 1.0);
-	#else 
-		vec4 pos_proj = vec4(vec2(tex_coord.x, 1-tex_coord.y) * 2 - 1, z, 1.0);
-	#endif
+	vec4 pos_proj = vec4(toScreenUV(tex_coord) * 2 - 1, z, 1.0);
 	vec4 view_pos = inv_view_proj * pos_proj;
 	return view_pos.xyz / view_pos.w;
 }
@@ -585,16 +585,30 @@ float rand(vec3 seed)
 	return fract(sin(dot_product) * 43758.5453);
 }
 
-void packSurface(Surface surface, out vec4 gbuffer0, out vec4 gbuffer1, out vec4 gbuffer2) {
+vec2 computeStaticObjectMotionVector(vec3 wpos) {
+	vec4 p = Global.view_projection_no_jitter * vec4(wpos, 1);
+	vec4 pos_projected = Global.prev_view_projection_no_jitter * vec4(wpos + Global.to_prev_frame_camera_translation.xyz, 1);
+	return pos_projected.xy / pos_projected.w - p.xy / p.w;	
+}
+
+vec2 cameraReproject(vec2 uv, float depth) {
+	vec4 v = (Global.reprojection * vec4(toScreenUV(uv) * 2 - 1, depth, 1));
+	vec2 res = (v.xy / v.w) * 0.5 + 0.5;
+	return toScreenUV(res);
+}
+
+void packSurface(Surface surface, out vec4 gbuffer0, out vec4 gbuffer1, out vec4 gbuffer2, out vec4 gbuffer3) {
 	gbuffer0 = vec4(surface.albedo.rgb, surface.roughness);
 	gbuffer1 = vec4(surface.N * 0.5 + 0.5, surface.ao);
 	gbuffer2 = vec4(packEmission(surface.emission), surface.translucency, surface.metallic, surface.shadow);
+	gbuffer3 = vec4(surface.motion, 0, 0);
 }
 
-Surface unpackSurface(vec2 uv, sampler2D gbuffer0, sampler2D gbuffer1, sampler2D gbuffer2, sampler2D gbuffer_depth, out float ndc_depth) {
+Surface unpackSurface(vec2 uv, sampler2D gbuffer0, sampler2D gbuffer1, sampler2D gbuffer2, sampler2D gbuffer3, sampler2D gbuffer_depth, out float ndc_depth) {
 	vec4 gb0 = texture(gbuffer0, uv);
 	vec4 gb1 = texture(gbuffer1, uv);
 	vec4 gb2 = texture(gbuffer2, uv);
+	vec4 gb3 = texture(gbuffer3, uv);
 
 	Surface surface;
 	surface.albedo = gb0.rgb;
@@ -607,6 +621,7 @@ Surface unpackSurface(vec2 uv, sampler2D gbuffer0, sampler2D gbuffer1, sampler2D
 	surface.translucency = gb2.y;
 	surface.ao = gb1.w;
 	surface.shadow = gb2.w;
+	surface.motion = gb3.xy;
 	return surface;
 }
 

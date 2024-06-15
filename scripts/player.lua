@@ -46,8 +46,8 @@ function playSound(audio_module, entity, sound)
 end
 
 function onInputEvent(event)
-    if event.type == LumixAPI.INPUT_EVENT_BUTTON then
-		if event.device.type == LumixAPI.INPUT_DEVICE_KEYBOARD then
+    if event.type == "button" then
+		if event.device.type == "keyboard" then
 			if event.key_id == LumixAPI.INPUT_KEYCODE_SPACE or event.key_id == string.byte("W") then
                 if event.down and is_collision_down then
                     local audio_module = this.world:getModule("audio")

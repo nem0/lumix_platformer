@@ -7,15 +7,9 @@ compute_shader [[
 
 	layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 	layout (binding = 0) uniform sampler2D u_history;
-	layout (binding = 1) uniform sampler2D u_depthbuf;
-	layout (binding = 2) uniform sampler2D u_current;
+	layout (binding = 1) uniform sampler2D u_current;
+	layout (binding = 2) uniform sampler2D u_motion_vectors;
     layout (rgba8, binding = 3) uniform image2D u_output;
-
-	vec2 reproject(vec2 uv, float depth) {
-		vec4 v = (Global.reprojection * vec4(uv * 2 - 1, depth, 1));
-		vec2 res = (v.xy / v.w) * 0.5 + 0.5;
-		return res;
-	}
 
 	// https://gist.github.com/TheRealMJP/c83b8c0f46b63f3a88a5986f4fa982b1
 	vec4 catmullRom(sampler2D tex, vec2 uv, vec2 texSize)
@@ -81,9 +75,14 @@ compute_shader [[
 		if (any(greaterThanEqual(ij, ivec2(u_size.xy)))) return;
 
 		vec2 uv = (vec2(ij) + 0.5) / u_size.xy;
-		float depth = textureLod(u_depthbuf, uv, 0).x;
-		
-		vec2 uv_prev = reproject(uv, depth);
+		vec2 motionvec = textureLod(u_motion_vectors, uv, 0).xy;
+		#ifdef _ORIGIN_BOTTOM_LEFT
+			motionvec *= vec2(0.5);
+		#else
+			motionvec *= vec2(0.5, -0.5);
+		#endif
+
+		vec2 uv_prev = uv + motionvec;
 
 		vec4 current = textureLod(u_current, uv /*- Global.pixel_jitter*/, 0);
 		if (all(lessThan(uv_prev, vec2(1))) && all(greaterThan(uv_prev, vec2(0))) ) {

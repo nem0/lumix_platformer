@@ -4,9 +4,9 @@ function surface_shader_ex(args)
 	args.vertex = args.vertex or ""
 	
 	if args.need_local_position then
-		args.vertex_preface = args.vertex_preface .. "\nlayout(location = 8) out vec3 v_local_position;\n"
+		args.vertex_preface = args.vertex_preface .. "\nvec3 v_local_position;\n"
 		args.vertex = args.vertex .. "\nv_local_position = a_position;\n"
-		args.fragment_preface = args.fragment_preface .. "\nlayout(location = 8) in vec3 v_local_position;\n"
+		args.fragment_preface = args.fragment_preface .. "\nin vec3 v_local_position;\n"
 	end
 
 	if args.texture_slots == nil then
@@ -70,15 +70,9 @@ function surface_shader_ex(args)
 				float layers;
 				float padding;
 				mat4 matrix;
+				mat4 prev_matrix;
 				mat2x4 bones[255];
 			} Model;
-		#endif
-
-		#if defined _HAS_ATTR7 && defined AUTOINSTANCED
-			#define HAS_VERTEX_COLOR
-		#endif
-		#if defined _HAS_ATTR6 && defined GRASS
-			#define HAS_VERTEX_COLOR
 		#endif
 
 		#if !defined GRASS && !defined PARTICLES
@@ -103,39 +97,56 @@ function surface_shader_ex(args)
 			};
 		#else
 			layout(location = 0) in vec3 a_position;
-			#ifdef _HAS_ATTR1
-				layout(location = 1) in vec2 a_uv;
+			#ifdef UV0_ATTR
+				layout(location = UV0_ATTR) in vec2 a_uv;
 			#else
 				const vec2 a_uv = vec2(0);
 			#endif
-			layout(location = 2) in vec3 a_normal;
-			#ifdef _HAS_ATTR3
-				layout(location = 3) in vec3 a_tangent;
+
+			layout(location = NORMAL_ATTR) in vec3 a_normal;
+
+			#ifdef TANGENT_ATTR
+				layout(location = TANGENT_ATTR) in vec3 a_tangent;
 			#else 
 				const vec3 a_tangent = vec3(0, 1, 0);
 			#endif
+
+			#ifdef INDICES_ATTR
+				layout(location = INDICES_ATTR) in ivec4 a_indices;
+				layout(location = WEIGHTS_ATTR) in vec4 a_weights;
+			#endif
+
 			#if defined SKINNED
-				layout(location = 4) in ivec4 a_indices;
-				layout(location = 5) in vec4 a_weights;
 			#elif defined INSTANCED
-				layout(location = 4) in vec4 i_rot_lod;
-				layout(location = 5) in vec4 i_pos_scale;
+				layout(location = INSTANCE0_ATTR) in vec4 i_rot_lod;
+				layout(location = INSTANCE1_ATTR) in vec4 i_pos_scale;
 			#elif defined AUTOINSTANCED
-				layout(location = 4) in vec4 i_rot;
-				layout(location = 5) in vec4 i_pos_lod;
-				layout(location = 6) in vec4 i_scale;
-				#ifdef HAS_VERTEX_COLOR
-					layout(location = 7) in vec4 a_color;
-					layout(location = 5) out vec4 v_color;
+				layout(location = INSTANCE0_ATTR) in vec4 i_rot;
+				layout(location = INSTANCE1_ATTR) in vec4 i_pos_lod;
+				layout(location = INSTANCE2_ATTR) in vec4 i_scale;
+				#ifdef COLOR0_ATTR
+					layout(location = COLOR0_ATTR) in vec4 a_color;
+					out vec4 v_color;
+				#endif
+			#elif defined DYNAMIC
+				layout(location = INSTANCE0_ATTR) in vec4 i_rot;
+				layout(location = INSTANCE1_ATTR) in vec4 i_pos_lod;
+				layout(location = INSTANCE2_ATTR) in vec4 i_scale;
+				layout(location = INSTANCE3_ATTR) in vec4 i_prev_rot;
+				layout(location = INSTANCE4_ATTR) in vec4 i_prev_pos_lod;
+				layout(location = INSTANCE5_ATTR) in vec4 i_prev_scale;
+				#ifdef COLOR0_ATTR
+					layout(location = COLOR0_ATTR) in vec4 a_color;
+					out vec4 v_color;
 				#endif
 			#elif defined GRASS
-				layout(location = 4) in vec4 i_pos_scale;
-				layout(location = 5) in vec4 i_rot;
-				#ifdef HAS_VERTEX_COLOR
-					layout(location = 6) in vec4 a_color;
-					layout(location = 5) out vec4 v_color;
+				layout(location = INSTANCE0_ATTR) in vec4 i_pos_scale;
+				layout(location = INSTANCE1_ATTR) in vec4 i_rot;
+				#ifdef COLOR0_ATTR
+					layout(location = COLOR0_ATTR) in vec4 a_color;
+					out vec4 v_color;
 				#endif
-				layout(location = 7) out float v_pos_y;
+				out float v_pos_y;
 			#else
 				layout(std140, binding = 4) uniform ModelState {
 					mat4 matrix;
@@ -147,26 +158,29 @@ function surface_shader_ex(args)
 				} Grass;
 			#endif
 			#ifdef HAS_LOD
-				layout(location = 4) out float v_lod;
+				out float v_lod;
 			#endif
-			#ifdef _HAS_ATTR7
-				layout(location = 7) in float a_ao;
-				layout(location = 6) out float v_ao;
+			#ifdef AO_ATTR
+				layout(location = AO_ATTR) in float a_ao;
+				out float v_ao;
 			#endif
 	
-			layout(location = 0) out vec2 v_uv;
-			layout(location = 1) out vec3 v_normal;
-			layout(location = 2) out vec3 v_tangent;
-			layout(location = 3) out vec4 v_wpos;
+			out vec2 v_uv;
+			out vec3 v_normal;
+			out vec3 v_tangent;
+			out vec4 v_wpos;
+			#if defined DYNAMIC || defined SKINNED
+				out vec4 v_prev_ndcpos_no_jitter;
+			#endif
 			#ifdef FUR
-				layout(location = 7) out float v_fur_layer;
+				out float v_fur_layer;
 			#endif
 		#endif
 	]] .. args.vertex_preface .. [[	
 		void main() {
 			#ifndef PARTICLES
 				v_uv = a_uv;
-				#ifdef _HAS_ATTR7
+				#ifdef AO_ATTR
 					v_ao = a_ao;
 				#endif
 
@@ -188,7 +202,19 @@ function surface_shader_ex(args)
 						v_lod = i_pos_lod.w;
 					#endif
 					v_wpos = vec4(i_pos_lod.xyz + rotateByQuat(i_rot, p), 1);
-					#ifdef HAS_VERTEX_COLOR
+					#ifdef COLOR0_ATTR
+						v_color = a_color;
+					#endif
+				#elif defined DYNAMIC
+					v_normal = rotateByQuat(i_rot, a_normal);
+					v_tangent = rotateByQuat(i_rot, a_tangent);
+					#ifdef HAS_LOD
+						v_lod = i_pos_lod.w;
+					#endif
+					v_wpos = vec4(i_pos_lod.xyz + rotateByQuat(i_rot, a_position * i_scale.xyz), 1);
+					v_prev_ndcpos_no_jitter = vec4(i_prev_pos_lod.xyz + rotateByQuat(i_prev_rot, a_position * i_prev_scale.xyz), 1);
+					v_prev_ndcpos_no_jitter = Global.reprojection * Global.view_projection_no_jitter * v_prev_ndcpos_no_jitter;
+					#ifdef COLOR0_ATTR
 						v_color = a_color;
 					#endif
 				#elif defined GRASS
@@ -200,7 +226,7 @@ function surface_shader_ex(args)
 					#ifdef GRASS
 						v_wpos.xyz += Grass.u_grass_origin;
 					#endif
-					#ifdef HAS_VERTEX_COLOR
+					#ifdef COLOR0_ATTR
 						v_color = a_color;
 					#endif
 				#elif defined SKINNED
@@ -225,6 +251,9 @@ function surface_shader_ex(args)
 						mpos = a_position;
 					#endif
 					v_wpos = Model.matrix * vec4(transformByDualQuat(dq, mpos), 1);
+					// TODO previous frame bone positions
+					v_prev_ndcpos_no_jitter = Model.prev_matrix * vec4(transformByDualQuat(dq, mpos), 1);
+					v_prev_ndcpos_no_jitter = Global.reprojection * Global.view_projection_no_jitter * v_prev_ndcpos_no_jitter;
 				#else 
 					mat4 model_mtx = Model.matrix;
 					v_normal = mat3(model_mtx) * a_normal;
@@ -254,24 +283,27 @@ function surface_shader_ex(args)
 	
 		#ifdef PARTICLES
 		#else
-			layout(location = 0) in vec2 v_uv;
-			layout(location = 1) in vec3 v_normal;
-			layout(location = 2) in vec3 v_tangent;
-			layout(location = 3) in vec4 v_wpos;
+			in vec2 v_uv;
+			in vec3 v_normal;
+			in vec3 v_tangent;
+			in vec4 v_wpos;
+			#if defined DYNAMIC || defined SKINNED
+				in vec4 v_prev_ndcpos_no_jitter;
+			#endif
 			#ifdef HAS_LOD
-				layout(location = 4) in float v_lod;
+				in float v_lod;
 			#endif
-			#if HAS_VERTEX_COLOR
-				layout(location = 5) in vec4 v_color;
+			#ifdef COLOR0_ATTR
+				in vec4 v_color;
 			#endif
-			#ifdef _HAS_ATTR7
-				layout(location = 6) in float v_ao;
+			#ifdef AO_ATTR
+				in float v_ao;
 			#endif
 			#ifdef FUR
-				layout(location = 7) in float v_fur_layer;
+				in float v_fur_layer;
 			#endif
 			#ifdef GRASS
-				layout(location = 7) in float v_pos_y;
+				in float v_pos_y;
 			#endif
 		#endif
 
@@ -280,6 +312,7 @@ function surface_shader_ex(args)
 				layout(location = 0) out vec4 o_gbuffer0;
 				layout(location = 1) out vec4 o_gbuffer1;
 				layout(location = 2) out vec4 o_gbuffer2;
+				layout(location = 3) out vec4 o_gbuffer3;
 			#else
 				layout(location = 0) out vec4 o_color;
 			#endif
@@ -295,6 +328,13 @@ function surface_shader_ex(args)
 			Surface data;
 			#ifndef PARTICLES
 				data.wpos = v_wpos.xyz;
+				vec4 p = Global.view_projection_no_jitter * v_wpos;
+				#if defined DYNAMIC || defined SKINNED
+					vec2 prev_pos_projected = v_prev_ndcpos_no_jitter.xy / v_prev_ndcpos_no_jitter.w;
+					data.motion = prev_pos_projected.xy - p.xy / p.w;
+				#else
+					data.motion = computeStaticObjectMotionVector(v_wpos.xyz);
+				#endif
 				data.V = normalize(-data.wpos);
 			#endif
 ]] .. args.fragment .. [[
@@ -319,7 +359,7 @@ function surface_shader_ex(args)
 				#if defined ALPHA_CUTOUT
 					if (data.alpha < 0.5) discard;
 				#endif
-				packSurface(data, o_gbuffer0, o_gbuffer1, o_gbuffer2);
+				packSurface(data, o_gbuffer0, o_gbuffer1, o_gbuffer2, o_gbuffer3);
 			}
 		#else
 			void main()

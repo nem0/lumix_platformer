@@ -3,4 +3,4 @@ top(0)
 bottom(0)
 left(0)
 right(0)
-texture "gui/blue_boxcheckmark.png"
+texture "blue_boxcheckmark.png"

@@ -3,4 +3,4 @@ top(10)
 bottom(90)
 left(10)
 right(90)
-texture "gui/blue_panel.png"
+texture "blue_panel.png"

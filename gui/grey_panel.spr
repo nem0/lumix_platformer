@@ -1,6 +1,6 @@
-type "patch9"
-top(10)
-bottom(90)
-left(10)
-right(90)
-texture "grey_panel.png"
+type = "patch9"
+top = 10
+bottom = 90
+left = 10
+right = 90
+texture = "gui/grey_panel.png"

@@ -1,7 +1,7 @@
-shader "/pipelines/standard.shd"
-backface_culling(true)
+shader "/shaders/standard.hlsl"
+backface_culling true
 layer "default"
-uniform("Material color", { 0.023650, 0.020721, 0.019717, 1.000000 })
+uniform "Material color", { 0.023650, 0.020721, 0.019717, 1.000000 }
 texture ""
 texture ""
 texture ""

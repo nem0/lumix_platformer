@@ -10,11 +10,11 @@ function onInputEvent(event)
             if event.key_id == string.byte("M") then
                 if this.gui_rect.enabled  then
                     this.gui_rect.enabled = false
-                    player.lua_script[0].pause = false
+                    player.lua_script[1].pause = false
                     this.world:getModule("gui"):getSystem():enableCursor(false)
                 else
                     this.gui_rect.enabled = true
-                    player.lua_script[0].pause = true
+                    player.lua_script[1].pause = true
                     this.world:getModule("gui"):getSystem():enableCursor(true)
                 end
             end
@@ -25,10 +25,10 @@ end
 function start()
     this.gui_rect.enabled = false
     this.world:getModule("gui"):getSystem():enableCursor(false)
-    restart_button.lua_script[0].onButtonClicked = function()
-        player.lua_script[0].restart()
+    restart_button.lua_script[1].onButtonClicked = function()
+        player.lua_script[1].restart()
         this.gui_rect.enabled = false
-        player.lua_script[0].pause = false
+        player.lua_script[1].pause = false
         this.world:getModule("gui"):getSystem():enableCursor(false)
     end
 end

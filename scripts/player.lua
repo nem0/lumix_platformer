@@ -77,7 +77,7 @@ function onInputEvent(event)
 			end
 			if event.key_id == string.byte("E") then
 				if event.down and interact_obj ~= nil then
-					interact_obj.lua_script[0].interact()
+					interact_obj.lua_script[1].interact()
 				end
 			end
 			if event.key_id == string.byte("A") then
@@ -113,40 +113,40 @@ end
 function start()
 	checkpoint = start_pos;
 
-	this.parent.lua_script[0].onTrigger = function(e, touch_lost)
+	this.parent.lua_script[1].onTrigger = function(e, touch_lost)
 		if e.lua_script then
-			if e.lua_script[0].life and num_lives < 3 then
-				if not e.lua_script[0].picked  then
+			if e.lua_script[1].life and num_lives < 3 then
+				if not e.lua_script[1].picked  then
 					local audio_module = this.world:getModule("audio")
 					playSound(audio_module, this, life_sound)
 					num_lives = num_lives + 1
 					upadte_lives_icons()
 					e.model_instance.enabled = false
-					e.lua_script[0].picked = true
+					e.lua_script[1].picked = true
 				end
 			end
-			if e.lua_script[0].coin then
-				if not e.lua_script[0].picked then
+			if e.lua_script[1].coin then
+				if not e.lua_script[1].picked then
 					local audio_module = this.world:getModule("audio")
 					playSound(audio_module, this, coin_sound)
 					coins = coins + 1
 					coin_counter.gui_text.text = tostring(coins)
 					e.model_instance.enabled = false
-					e.lua_script[0].picked = true
+					e.lua_script[1].picked = true
 				end
 			end
-			if e.lua_script[0].checkpoint then
+			if e.lua_script[1].checkpoint then
 				checkpoint = e
 			end
-			if e.lua_script[0].lever then
+			if e.lua_script[1].lever then
 				if touch_lost then
 					if interact_obj then
-						interact_obj.lua_script[0].exited()
+						interact_obj.lua_script[1].exited()
 					end
 					interact_obj = nil
 				else
 					interact_obj = e
-					e.lua_script[0].entered()
+					e.lua_script[1].entered()
 				end
 			end
 		end
@@ -154,10 +154,10 @@ function start()
 		if invincible > 0 or dead then return end
 		if e._entity == fall_trigger._entity then
 			kill()
-		elseif e.lua_script[0].trap and e.lua_script[0].active then
-			e.lua_script[0].triggerTrap()
+		elseif e.lua_script[1].trap and e.lua_script[1].active then
+			e.lua_script[1].triggerTrap()
 			kill()
-		elseif e.lua_script[0].spikes == true then
+		elseif e.lua_script[1].spikes == true then
 			kill()
 		end
 	end

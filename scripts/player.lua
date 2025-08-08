@@ -41,7 +41,7 @@ Editor.setPropertyType(this, "death_sound", Editor.RESOURCE_PROPERTY, "clip")
 Editor.setPropertyType(this, "jump_sound", Editor.RESOURCE_PROPERTY, "clip")
 
 function playSound(audio_module, entity, sound)
-	local path = this.world.lua_script:getResourcePath(sound)
+	local path = sound.path
 	audio_module:play(entity, path, false)
 end
 

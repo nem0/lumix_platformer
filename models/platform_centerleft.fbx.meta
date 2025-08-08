@@ -1,6 +1,4 @@
-create_impostor = false
-use_mikktspace = false
+
 physics = "trimesh"
-scale = 1.0000000000
-culling_scale = 1.0000000000
-split = false
+lod_count = 1
+lod0_distance = 10000.000000

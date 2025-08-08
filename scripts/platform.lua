@@ -1,8 +1,6 @@
-from = {}
-to = {}
+from = Lumix.Entity.NULL
+to = Lumix.Entity.NULL
 speed = 1
-Editor.setPropertyType(this, "from", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "to", Editor.ENTITY_PROPERTY)
 local t = 0
 
 local function mix(a, b, t)

@@ -1,7 +1,6 @@
 trap = true
 active = true;
-closed_entity = {}
-Editor.setPropertyType(this, "closed_entity", Editor.ENTITY_PROPERTY)
+closed_entity = Lumix.Entity.NULL
 
 function triggerTrap()
     active = false

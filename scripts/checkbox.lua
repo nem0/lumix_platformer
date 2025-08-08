@@ -1,10 +1,7 @@
-active_img = {}
-inactive_img = {}
+active_img = Lumix.Entity.NULL
+inactive_img = Lumix.Entity.NULL
 checked = false
-music_entity = {}
-Editor.setPropertyType(this, "active_img", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "inactive_img", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "music_entity", Editor.ENTITY_PROPERTY)
+music_entity = Lumix.Entity.NULL
 
 function start()
     checked = false

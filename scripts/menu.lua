@@ -1,8 +1,5 @@
-restart_button = {}
-player = {}
-
-Editor.setPropertyType(this, "restart_button", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "player", Editor.ENTITY_PROPERTY)
+restart_button = Lumix.Entity.NULL
+player = Lumix.Entity.NULL
 
 function onInputEvent(event)
     if event.type == "button" then

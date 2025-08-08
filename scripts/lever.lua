@@ -1,10 +1,8 @@
 local active = false
 show_msg = true
 lever = true
-interact_msg = {}
-subject = {}
-Editor.setPropertyType(this, "interact_msg", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "subject", Editor.ENTITY_PROPERTY)
+interact_msg = Lumix.Entity.NULL
+subject = Lumix.Entity.NULL
 
 function entered()
     if show_msg then

@@ -13,32 +13,20 @@ local interact_obj = nil
 local num_lives = 3
 local vspeed = 0
 dead = false
-fall_trigger = {}
-start_pos = {}
-respawn_msg = {}
-coin_counter = {}
-life_icon_0 = {}
-life_icon_1 = {}
-life_icon_2 = {}
-game_over_msg = {}
-coins = 0
-coin_sound = -1
-life_sound = -1
-death_sound = -1
-jump_sound = -1
 
-Editor.setPropertyType(this, "start_pos", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "fall_trigger", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "respawn_msg", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "life_icon_0", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "life_icon_1", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "life_icon_2", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "game_over_msg", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "coin_counter", Editor.ENTITY_PROPERTY)
-Editor.setPropertyType(this, "coin_sound", Editor.RESOURCE_PROPERTY, "clip")
-Editor.setPropertyType(this, "life_sound", Editor.RESOURCE_PROPERTY, "clip")
-Editor.setPropertyType(this, "death_sound", Editor.RESOURCE_PROPERTY, "clip")
-Editor.setPropertyType(this, "jump_sound", Editor.RESOURCE_PROPERTY, "clip")
+fall_trigger = Lumix.Entity.NULL
+start_pos = Lumix.Entity.NULL
+respawn_msg = Lumix.Entity.NULL
+coin_counter = Lumix.Entity.NULL
+life_icon_0 = Lumix.Entity.NULL
+life_icon_1 = Lumix.Entity.NULL
+life_icon_2 = Lumix.Entity.NULL
+game_over_msg = Lumix.Entity.NULL
+coins = 0
+coin_sound = Lumix.Resource:newEmpty("clip")
+life_sound = Lumix.Resource:newEmpty("clip")
+death_sound = Lumix.Resource:newEmpty("clip")
+jump_sound = Lumix.Resource:newEmpty("clip")
 
 function playSound(audio_module, entity, sound)
 	local path = sound.path
